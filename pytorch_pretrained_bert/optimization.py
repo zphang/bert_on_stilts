@@ -17,6 +17,7 @@
 import math
 import torch
 from torch.optim import Optimizer
+from torch.optim.optimizer import required
 from torch.nn.utils import clip_grad_norm_
 
 def warmup_cosine(x, warmup=0.002):
@@ -41,8 +42,8 @@ SCHEDULES = {
 }
 
 
-class BERTAdam(Optimizer):
-    """Implements BERT version of Adam algorithm with weight decay fix (and no ).
+class BertAdam(Optimizer):
+    """Implements BERT version of Adam algorithm with weight decay fix.
     Params:
         lr: learning rate
         warmup: portion of t_total for the warmup, -1  means no warmup. Default: -1
@@ -52,13 +53,13 @@ class BERTAdam(Optimizer):
         b1: Adams b1. Default: 0.9
         b2: Adams b2. Default: 0.999
         e: Adams epsilon. Default: 1e-6
-        weight_decay_rate: Weight decay. Default: 0.01
+        weight_decay: Weight decay. Default: 0.01
         max_grad_norm: Maximum norm for the gradients (-1 means no clipping). Default: 1.0
     """
-    def __init__(self, params, lr, warmup=-1, t_total=-1, schedule='warmup_linear',
-                 b1=0.9, b2=0.999, e=1e-6, weight_decay_rate=0.01,
+    def __init__(self, params, lr=required, warmup=-1, t_total=-1, schedule='warmup_linear',
+                 b1=0.9, b2=0.999, e=1e-6, weight_decay=0.01,
                  max_grad_norm=1.0):
-        if not lr >= 0.0:
+        if lr is not required and lr < 0.0:
             raise ValueError("Invalid learning rate: {} - should be >= 0.0".format(lr))
         if schedule not in SCHEDULES:
             raise ValueError("Invalid schedule parameter: {}".format(schedule))
@@ -71,9 +72,9 @@ class BERTAdam(Optimizer):
         if not e >= 0.0:
             raise ValueError("Invalid epsilon value: {} - should be >= 0.0".format(e))
         defaults = dict(lr=lr, schedule=schedule, warmup=warmup, t_total=t_total,
-                        b1=b1, b2=b2, e=e, weight_decay_rate=weight_decay_rate,
+                        b1=b1, b2=b2, e=e, weight_decay=weight_decay,
                         max_grad_norm=max_grad_norm)
-        super(BERTAdam, self).__init__(params, defaults)
+        super(BertAdam, self).__init__(params, defaults)
 
     def get_lr(self):
         lr = []
@@ -136,11 +137,11 @@ class BERTAdam(Optimizer):
                 # the correct way of using L2 regularization/weight decay with Adam,
                 # since that will interact with the m and v parameters in strange ways.
                 #
-                # Instead we want ot decay the weights in a manner that doesn't interact
+                # Instead we want to decay the weights in a manner that doesn't interact
                 # with the m/v parameters. This is equivalent to adding the square
                 # of the weights to the loss with plain (non-momentum) SGD.
-                if group['weight_decay_rate'] > 0.0:
-                    update += group['weight_decay_rate'] * p.data
+                if group['weight_decay'] > 0.0:
+                    update += group['weight_decay'] * p.data
 
                 if group['t_total'] != -1:
                     schedule_fct = SCHEDULES[group['schedule']]
@@ -154,6 +155,7 @@ class BERTAdam(Optimizer):
                 state['step'] += 1
 
                 # step_size = lr_scheduled * math.sqrt(bias_correction2) / bias_correction1
+                # No bias correction
                 # bias_correction1 = 1 - beta1 ** state['step']
                 # bias_correction2 = 1 - beta2 ** state['step']
 

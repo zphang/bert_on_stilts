@@ -20,7 +20,7 @@ import unittest
 
 import torch
 
-import optimization
+from pytorch_pretrained_bert import BertAdam
 
 class OptimizationTest(unittest.TestCase):
 
@@ -32,10 +32,10 @@ class OptimizationTest(unittest.TestCase):
     def test_adam(self):
         w = torch.tensor([0.1, -0.2, -0.1], requires_grad=True)
         target = torch.tensor([0.4, 0.2, -0.5])
-        criterion = torch.nn.MSELoss(reduction='elementwise_mean')
+        criterion = torch.nn.MSELoss()
         # No warmup, constant schedule, no gradient clipping
-        optimizer = optimization.BERTAdam(params=[w], lr=2e-1,
-                                          weight_decay_rate=0.0,
+        optimizer = BertAdam(params=[w], lr=2e-1,
+                                          weight_decay=0.0,
                                           max_grad_norm=-1)
         for _ in range(100):
             loss = criterion(w, target)
