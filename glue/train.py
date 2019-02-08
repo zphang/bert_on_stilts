@@ -40,7 +40,8 @@ def get_args(*in_args):
     parser.add_argument("--bert_load_path", default=None, type=str)
     parser.add_argument("--bert_load_mode", default="from_pretrained", type=str,
                         help="from_pretrained, model_only, state_model_only, state_all")
-    parser.add_argument("--bert_config_dir", default=None, type=str)
+    parser.add_argument("--bert_config_json_path", default=None, type=str)
+    parser.add_argument("--bert_vocab_path", default=None, type=str)
 
     # === Other parameters === #
     parser.add_argument("--max_seq_length",
@@ -106,6 +107,7 @@ def get_args(*in_args):
                         help="Loss scaling to improve fp16 numeric stability. Only used when fp16 set to True.\n"
                              "0 (default value): dynamic loss scaling.\n"
                              "Positive power of 2: static loss scaling value.\n")
+    parser.add_argument('--print-trainable-params', action="store_true")
     args = parser.parse_args(*in_args)
     return args
 
@@ -155,14 +157,15 @@ def main():
         data_dir = args.data_dir
 
     tokenizer = model_setup.create_tokenizer(
-        bert_model=args.bert_model,
+        bert_model_name=args.bert_model,
         bert_load_mode=args.bert_load_mode,
         do_lower_case=args.do_lower_case,
+        bert_vocab_path=args.bert_vocab_path,
     )
     all_state = model_setup.load_overall_state(args.bert_load_path, relaxed=True)
     model = model_setup.create_model(
         task_type=task_processor.TASK_TYPE,
-        bert_model=args.bert_model,
+        bert_model_name=args.bert_model,
         bert_load_mode=args.bert_load_mode,
         all_state=all_state,
         num_labels=len(task_processor.get_labels()),
@@ -170,8 +173,14 @@ def main():
         n_gpu=n_gpu,
         fp16=args.fp16,
         local_rank=args.local_rank,
+        bert_config_json_path=args.bert_config_json_path,
     )
     if args.do_train:
+        if args.print_trainable_params:
+            print("TRAINABLE PARAMS:")
+            for param_name, param in model.named_parameters():
+                if param.requires_grad:
+                    print("    {}".format(param_name))
         train_examples = task_processor.get_train_examples(data_dir)
         num_train_steps = int(
             len(train_examples)

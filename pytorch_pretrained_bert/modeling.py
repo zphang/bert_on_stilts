@@ -78,7 +78,12 @@ class BertConfig(object):
                  attention_probs_dropout_prob=0.1,
                  max_position_embeddings=512,
                  type_vocab_size=2,
-                 initializer_range=0.02):
+                 initializer_range=0.02,
+                 use_adapter=False,
+                 adapter_act="gelu",
+                 adapter_size=64,
+                 adapter_initializer_range=0.02,
+                 ):
         """Constructs BertConfig.
 
         Args:
@@ -120,6 +125,13 @@ class BertConfig(object):
             self.max_position_embeddings = max_position_embeddings
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
+
+            # Adapter config
+            self.use_adapter = use_adapter
+            self.adapter_act = adapter_act
+            self.adapter_size = adapter_size
+            self.adapter_initializer_range = adapter_initializer_range
+
         else:
             raise ValueError("First argument must be either a vocabulary size (int)"
                              "or the path to a pretrained model config file (str)")
@@ -127,7 +139,7 @@ class BertConfig(object):
     @classmethod
     def from_dict(cls, json_object):
         """Constructs a `BertConfig` from a Python dictionary of parameters."""
-        config = BertConfig(vocab_size_or_config_json_file=-1)
+        config = cls(vocab_size_or_config_json_file=-1)
         for key, value in json_object.items():
             config.__dict__[key] = value
         return config
@@ -150,6 +162,7 @@ class BertConfig(object):
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+
 
 try:
     from apex.normalization.fused_layer_norm import FusedLayerNorm as BertLayerNorm
@@ -259,10 +272,13 @@ class BertSelfOutput(nn.Module):
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.adapter = Adapter(config) if config.use_adapter else None
 
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
+        if self.adapter is not None:
+            hidden_states = self.adapter(hidden_states)
         hidden_states = self.LayerNorm(hidden_states + input_tensor)
         return hidden_states
 
@@ -298,10 +314,13 @@ class BertOutput(nn.Module):
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.adapter = Adapter(config) if config.use_adapter else None
 
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
+        if self.adapter is not None:
+            hidden_states = self.adapter(hidden_states)
         hidden_states = self.LayerNorm(hidden_states + input_tensor)
         return hidden_states
 
@@ -318,6 +337,30 @@ class BertLayer(nn.Module):
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
+
+
+class Adapter(nn.Module):
+    def __init__(self, config):
+        super(Adapter, self).__init__()
+        self.down_project = nn.Linear(config.hidden_size, config.adapter_size)
+        self.activation = ACT2FN[config.adapter_act] \
+            if isinstance(config.adapter_act, str) else config.adapter_act
+        self.up_project = nn.Linear(config.adapter_size, config.hidden_size)
+        self.init_weights(config)
+
+    def forward(self, hidden_states):
+        down_projected = self.down_project(hidden_states)
+        activated = self.activation(down_projected)
+        up_projected = self.up_project(activated)
+        return hidden_states + up_projected
+
+    def init_weights(self, config):
+        # Slightly different from the TF version which uses truncated_normal for initialization
+        # cf https://github.com/pytorch/pytorch/pull/5617
+        self.down_project.weight.data.normal_(mean=0.0, std=config.adapter_initializer_range)
+        self.down_project.bias.data.zero_()
+        self.up_project.weight.data.normal_(mean=0.0, std=config.adapter_initializer_range)
+        self.up_project.bias.data.zero_()
 
 
 class BertEncoder(nn.Module):
@@ -619,6 +662,16 @@ class BertModel(PreTrainedBertModel):
         self.encoder = BertEncoder(config)
         self.pooler = BertPooler(config)
         self.apply(self.init_bert_weights)
+
+        if config.use_adapter:
+            for param in self.parameters():
+                param.requires_grad = False
+            for param in self.pooler.parameters():
+                param.requires_grad = True
+            for name, sub_module in self.named_modules():
+                if isinstance(sub_module, (Adapter, BertLayerNorm)):
+                    for param_name, param in sub_module.named_parameters():
+                        param.requires_grad = True
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, output_all_encoded_layers=True):
         if attention_mask is None:
