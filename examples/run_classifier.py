@@ -447,7 +447,7 @@ class XnliProcessor(DataProcessor):
         return examples
 
 
-def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer):
+def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, verbose=True):
     """Loads a data file into a list of `InputBatch`s."""
 
     label_map = {label : i for i, label in enumerate(label_list)}
@@ -510,7 +510,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         assert len(segment_ids) == max_seq_length
 
         label_id = label_map[example.label]
-        if ex_index < 5:
+        if verbose and ex_index < 5:
             logger.info("*** Example ***")
             logger.info("guid: %s" % (example.guid))
             logger.info("tokens: %s" % " ".join(
@@ -658,6 +658,7 @@ def main():
     num_labels_task = {
         "cola": 2,
         "mnli": 3,
+        "rte": 2,
         "mrpc": 2,
     }
 
@@ -840,6 +841,7 @@ def main():
         model.eval()
         eval_loss, eval_accuracy = 0, 0
         nb_eval_steps, nb_eval_examples = 0, 0
+        all_logits = []
  
         for input_ids, input_mask, segment_ids, label_ids in tqdm(eval_dataloader, desc="Evaluating"):
             input_ids = input_ids.to(device)
@@ -860,9 +862,11 @@ def main():
 
             nb_eval_examples += input_ids.size(0)
             nb_eval_steps += 1
+            all_logits.append(logits)
 
         eval_loss = eval_loss / nb_eval_steps
         eval_accuracy = eval_accuracy / nb_eval_examples
+        all_logits = np.concatenate(all_logits, axis=0)
         loss = tr_loss/nb_tr_steps if args.do_train else None
         result = {'eval_loss': eval_loss,
                   'eval_accuracy': eval_accuracy,
@@ -875,6 +879,12 @@ def main():
             for key in sorted(result.keys()):
                 logger.info("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\n" % (key, str(result[key])))
+
+        output_eval_file = os.path.join(args.output_dir, "eval_preds.txt")
+        with open(output_eval_file, "w") as writer:
+            for row in all_logits:
+                writer.write("\t".join(map(str, row)) + "\n")
+
 
 if __name__ == "__main__":
     main()

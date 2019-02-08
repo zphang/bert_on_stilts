@@ -30,7 +30,7 @@ import shutil
 
 import torch
 from torch import nn
-from torch.nn import CrossEntropyLoss
+from torch.nn import CrossEntropyLoss, MSELoss
 
 from .file_utils import cached_path
 
@@ -47,6 +47,7 @@ PRETRAINED_MODEL_ARCHIVE_MAP = {
 }
 CONFIG_NAME = 'bert_config.json'
 WEIGHTS_NAME = 'pytorch_model.bin'
+
 
 def gelu(x):
     """Implementation of the gelu activation function.
@@ -168,6 +169,7 @@ except ImportError:
             s = (x - u).pow(2).mean(-1, keepdim=True)
             x = (x - u) / torch.sqrt(s + self.variance_epsilon)
             return self.weight * x + self.bias
+
 
 class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
@@ -445,7 +447,8 @@ class PreTrainedBertModel(nn.Module):
             module.bias.data.zero_()
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name, state_dict=None, cache_dir=None, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name, state_dict=None, cache_dir=None, verbose=True,
+                        *inputs, **kwargs):
         """
         Instantiate a PreTrainedBertModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -484,32 +487,49 @@ class PreTrainedBertModel(nn.Module):
                     ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()),
                     archive_file))
             return None
-        if resolved_archive_file == archive_file:
-            logger.info("loading archive file {}".format(archive_file))
-        else:
-            logger.info("loading archive file {} from cache at {}".format(
-                archive_file, resolved_archive_file))
+        if verbose:
+            if resolved_archive_file == archive_file:
+                logger.info("loading archive file {}".format(archive_file))
+            else:
+                logger.info("loading archive file {} from cache at {}".format(
+                    archive_file, resolved_archive_file))
         tempdir = None
         if os.path.isdir(resolved_archive_file):
             serialization_dir = resolved_archive_file
         else:
             # Extract archive to temp dir
             tempdir = tempfile.mkdtemp()
-            logger.info("extracting archive file {} to temp dir {}".format(
-                resolved_archive_file, tempdir))
+            if verbose:
+                logger.info("extracting archive file {} to temp dir {}".format(
+                    resolved_archive_file, tempdir))
             with tarfile.open(resolved_archive_file, 'r:gz') as archive:
                 archive.extractall(tempdir)
             serialization_dir = tempdir
         # Load config
         config_file = os.path.join(serialization_dir, CONFIG_NAME)
         config = BertConfig.from_json_file(config_file)
-        logger.info("Model config {}".format(config))
+        if verbose:
+            logger.info("Model config {}".format(config))
         # Instantiate model.
         model = cls(config, *inputs, **kwargs)
         if state_dict is None:
             weights_path = os.path.join(serialization_dir, WEIGHTS_NAME)
             state_dict = torch.load(weights_path)
+        model.load_from_state_dict(state_dict)
 
+        if tempdir:
+            # Clean up temp dir
+            shutil.rmtree(tempdir)
+        return model
+
+    @classmethod
+    def from_state_dict(cls, config_file, state_dict, *inputs, **kwargs):
+        config = BertConfig.from_json_file(config_file)
+        model = cls(config, *inputs, **kwargs)
+        model.load_from_state_dict(state_dict)
+        return model
+
+    def load_from_state_dict(self, state_dict):
         old_keys = []
         new_keys = []
         for key in state_dict.keys():
@@ -540,17 +560,13 @@ class PreTrainedBertModel(nn.Module):
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
-        load(model, prefix='' if hasattr(model, 'bert') else 'bert.')
+        load(self, prefix='' if hasattr(self, 'bert') else 'bert.')
         if len(missing_keys) > 0:
             logger.info("Weights of {} not initialized from pretrained model: {}".format(
-                model.__class__.__name__, missing_keys))
+                self.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
             logger.info("Weights from pretrained model not used in {}: {}".format(
-                model.__class__.__name__, unexpected_keys))
-        if tempdir:
-            # Clean up temp dir
-            shutil.rmtree(tempdir)
-        return model
+                self.__class__.__name__, unexpected_keys))
 
 
 class BertModel(PreTrainedBertModel):
@@ -884,7 +900,8 @@ class BertForSequenceClassification(PreTrainedBertModel):
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
-        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask,
+                                     output_all_encoded_layers=False)
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
 
@@ -894,6 +911,28 @@ class BertForSequenceClassification(PreTrainedBertModel):
             return loss
         else:
             return logits
+
+
+class BertForSequenceRegression(PreTrainedBertModel):
+    def __init__(self, config):
+        super(BertForSequenceRegression, self).__init__(config)
+        self.bert = BertModel(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.regressor = nn.Linear(config.hidden_size, 1)
+        self.apply(self.init_bert_weights)
+
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
+        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask,
+                                     output_all_encoded_layers=False)
+        pooled_output = self.dropout(pooled_output)
+        output = self.regressor(pooled_output)
+
+        if labels is not None:
+            loss_fct = MSELoss()
+            loss = loss_fct(output.view(-1), labels.view(-1))
+            return loss
+        else:
+            return output.view(-1, 1)
 
 
 class BertForMultipleChoice(PreTrainedBertModel):
@@ -952,7 +991,8 @@ class BertForMultipleChoice(PreTrainedBertModel):
         flat_input_ids = input_ids.view(-1, input_ids.size(-1))
         flat_token_type_ids = token_type_ids.view(-1, token_type_ids.size(-1))
         flat_attention_mask = attention_mask.view(-1, attention_mask.size(-1))
-        _, pooled_output = self.bert(flat_input_ids, flat_token_type_ids, flat_attention_mask, output_all_encoded_layers=False)
+        _, pooled_output = self.bert(flat_input_ids, flat_token_type_ids, flat_attention_mask,
+                                     output_all_encoded_layers=False)
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
         reshaped_logits = logits.view(-1, self.num_choices)

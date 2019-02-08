@@ -117,7 +117,7 @@ class BertTokenizer(object):
         return tokens
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name, cache_dir=None, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name, cache_dir=None, verbose=True, *inputs, **kwargs):
         """
         Instantiate a PreTrainedBertModel from a pre-trained model file.
         Download and cache the pre-trained model file if needed.
@@ -140,11 +140,12 @@ class BertTokenizer(object):
                     ', '.join(PRETRAINED_VOCAB_ARCHIVE_MAP.keys()),
                     vocab_file))
             return None
-        if resolved_vocab_file == vocab_file:
-            logger.info("loading vocabulary file {}".format(vocab_file))
-        else:
-            logger.info("loading vocabulary file {} from cache at {}".format(
-                vocab_file, resolved_vocab_file))
+        if verbose:
+            if resolved_vocab_file == vocab_file:
+                logger.info("loading vocabulary file {}".format(vocab_file))
+            else:
+                logger.info("loading vocabulary file {} from cache at {}".format(
+                    vocab_file, resolved_vocab_file))
         if pretrained_model_name in PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP:
             # if we're using a pretrained model, ensure the tokenizer wont index sequences longer
             # than the number of positional embeddings
