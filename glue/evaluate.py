@@ -20,6 +20,7 @@ PROCESSORS = {
     "mnli-mm": tasks.MnliMismatchedProcessor,
     "qnli": tasks.QnliProcessor,
     "rte": tasks.RteProcessor,
+    "wnli": tasks.WnliProcessor,
     "xnli": tasks.XnliProcessor,
     "snli": tasks.SnliProcessor,
     "bcs": tasks.BcsProcessor,
@@ -34,6 +35,7 @@ OUTPUT_MODES = {
     "mnli-mm": "classification",
     "qnli": "classification",
     "rte": "classification",
+    "wnli": "classification",
     "xnli": "classification",
     "snli": "classification",
     "bcs": "classification",
@@ -48,6 +50,7 @@ DEFAULT_FOL_NAMES = {
     "mnli-mm": "MNLI",
     "qnli": "QNLI",
     "rte": "RTE",
+    "wnli": "WNLI",
 }
 
 
@@ -94,6 +97,8 @@ def compute_metrics(task_name, pred_srs, label_srs):
     elif task_name == "qnli":
         return {"acc": simple_accuracy(pred_srs, label_srs)}
     elif task_name == "rte":
+        return {"acc": simple_accuracy(pred_srs, label_srs)}
+    elif task_name == "wnli":
         return {"acc": simple_accuracy(pred_srs, label_srs)}
     else:
         raise KeyError(task_name)

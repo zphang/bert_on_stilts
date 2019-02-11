@@ -4,6 +4,7 @@ import json
 import numpy as np
 import os
 import pandas as pd
+import sys
 import random
 
 import logging
@@ -11,6 +12,7 @@ import logging
 from glue.tasks import PROCESSORS, DEFAULT_FOLDER_NAMES
 from glue.runners import GlueTaskRunner, RunnerParameters
 from glue import model_setup
+from pytorch_pretrained_bert import utils
 
 
 def get_args(*in_args):
@@ -42,6 +44,7 @@ def get_args(*in_args):
                         help="from_pretrained, model_only, state_model_only, state_all")
     parser.add_argument("--bert_config_json_path", default=None, type=str)
     parser.add_argument("--bert_vocab_path", default=None, type=str)
+    parser.add_argument("--bert_save_mode", default="all", type=str)
 
     # === Other parameters === #
     parser.add_argument("--max_seq_length",
@@ -60,6 +63,9 @@ def get_args(*in_args):
     parser.add_argument("--do_test",
                         action='store_true',
                         help="Whether to run eval on the test set.")
+    parser.add_argument("--do_val_history",
+                        action='store_true',
+                        help="")
     parser.add_argument("--do_lower_case",
                         action='store_true',
                         help="Set this flag if you are using an uncased model.")
@@ -93,7 +99,7 @@ def get_args(*in_args):
                         help="local_rank for distributed training on gpus")
     parser.add_argument('--seed',
                         type=int,
-                        default=42,
+                        default=-1,
                         help="random seed for initialization")
     parser.add_argument('--gradient_accumulation_steps',
                         type=int,
@@ -108,12 +114,16 @@ def get_args(*in_args):
                              "0 (default value): dynamic loss scaling.\n"
                              "Positive power of 2: static loss scaling value.\n")
     parser.add_argument('--print-trainable-params', action="store_true")
+    parser.add_argument('--not-verbose', action="store_true")
+    parser.add_argument('--force-overwrite', action="store_true")
     args = parser.parse_args(*in_args)
     return args
 
 
 def main():
     args = get_args()
+    for k, v in vars(get_args).items():
+        print("  {}: {}".format(k, v))
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
                         level=logging.INFO)
@@ -136,16 +146,20 @@ def main():
                             args.gradient_accumulation_steps))
     args.train_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    seed = get_seed(args.seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    print("Using seed: {}".format(seed))
+
     if n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
     if not(args.do_train or args.do_val or args.do_test):
         raise ValueError("At least one of `do_train` or `do_val` or `do_test` must be True.")
 
-    if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train:
+    if not args.force_overwrite \
+            and (os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train):
         raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -180,7 +194,7 @@ def main():
             print("TRAINABLE PARAMS:")
             for param_name, param in model.named_parameters():
                 if param.requires_grad:
-                    print("    {}".format(param_name))
+                    print("    {}  {}".format(param_name, tuple(param.shape)))
         train_examples = task_processor.get_train_examples(data_dir)
         num_train_steps = int(
             len(train_examples)
@@ -223,21 +237,30 @@ def main():
     )
 
     if args.do_train:
-        runner.run_train(train_examples)
+        if args.do_val_history:
+            val_examples = task_processor.get_dev_examples(data_dir)
+            results = runner.run_train_val(
+                train_examples=train_examples,
+                val_examples=val_examples,
+                task_name=task_name,
+            )
+            metrics_str = json.dumps(results, indent=2)
+            with open(os.path.join(args.output_dir, "val_metrics_history.json"), "w") as f:
+                f.write(metrics_str)
+        else:
+            runner.run_train(train_examples)
 
     if args.do_save:
         # Save a trained model
-        model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-        output_model_file = os.path.join(args.output_dir, "all_state.p")
-        torch.save({
-            "model": model_to_save.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "args": vars(args),
-        }, output_model_file)
+        model_setup.save_bert(
+            model=model, optimizer=optimizer, args=args,
+            save_path=os.path.join(args.output_dir, "all_state.p"),
+            save_mode=args.bert_save_mode,
+        )
 
     if args.do_val:
         val_examples = task_processor.get_dev_examples(data_dir)
-        results = runner.run_val(val_examples, task_name=task_name)
+        results = runner.run_val(val_examples, task_name=task_name, verbose=not args.not_verbose)
         df = pd.DataFrame(results["logits"])
         df.to_csv(os.path.join(args.output_dir, "val_preds.csv"), header=False, index=False)
         metrics_str = json.dumps({"loss": results["loss"], "metrics": results["metrics"]}, indent=2)
@@ -248,7 +271,7 @@ def main():
         # HACK for MNLI-mismatched
         if task_name == "mnli":
             mm_val_examples = PROCESSORS["mnli-mm"].get_dev_examples(data_dir)
-            mm_results = runner.run_val(mm_val_examples, task_name=task_name)
+            mm_results = runner.run_val(mm_val_examples, task_name=task_name, verbose=not args.not_verbose)
             df = pd.DataFrame(results["logits"])
             df.to_csv(os.path.join(args.output_dir, "mm_val_preds.csv"), header=False, index=False)
             combined_metrics = {}
@@ -265,7 +288,7 @@ def main():
 
     if args.do_test:
         test_examples = task_processor.get_test_examples(data_dir)
-        logits = runner.run_test(test_examples)
+        logits = runner.run_test(test_examples, verbose=not args.not_verbose)
         df = pd.DataFrame(logits)
         df.to_csv(os.path.join(args.output_dir, "test_preds.csv"), header=False, index=False)
 
@@ -275,6 +298,13 @@ def main():
             logits = runner.run_test(test_examples)
             df = pd.DataFrame(logits)
             df.to_csv(os.path.join(args.output_dir, "mm_test_preds.csv"), header=False, index=False)
+
+
+def get_seed(seed):
+    if seed == -1:
+        return np.random.randint(0, 2**32 - 1)
+    else:
+        return seed
 
 
 if __name__ == "__main__":

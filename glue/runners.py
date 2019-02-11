@@ -1,3 +1,4 @@
+import collections as col
 import logging
 import numpy as np
 from tqdm import tqdm, trange
@@ -216,15 +217,26 @@ class GlueTaskRunner:
         self.device = device
         self.rparams = rparams
 
-    def run_train(self, train_examples):
-        logger.info("***** Running training *****")
-        logger.info("  Num examples = %d", len(train_examples))
-        logger.info("  Batch size = %d", self.rparams.train_batch_size)
-        logger.info("  Num steps = %d", self.rparams.num_train_steps)
-        train_dataloader = self.get_train_dataloader(train_examples)
+    def run_train(self, train_examples, verbose=True):
+        if verbose:
+            logger.info("***** Running training *****")
+            logger.info("  Num examples = %d", len(train_examples))
+            logger.info("  Batch size = %d", self.rparams.train_batch_size)
+            logger.info("  Num steps = %d", self.rparams.num_train_steps)
+        train_dataloader = self.get_train_dataloader(train_examples, verbose=verbose)
 
         for _ in trange(int(self.rparams.num_train_epochs), desc="Epoch"):
             self.run_train_epoch(train_dataloader)
+
+    def run_train_val(self, train_examples, val_examples, task_name):
+        epoch_result_dict = col.OrderedDict()
+        for i in trange(int(self.rparams.num_train_epochs), desc="Epoch"):
+            train_dataloader = self.get_train_dataloader(train_examples, verbose=False)
+            self.run_train_epoch(train_dataloader)
+            epoch_result = self.run_val(val_examples, task_name, verbose=False)
+            del epoch_result["logits"]
+            epoch_result_dict[i] = epoch_result
+        return epoch_result_dict
 
     def run_train_epoch(self, train_dataloader):
         self.model.train()
@@ -256,8 +268,8 @@ class GlueTaskRunner:
                 self.optimizer.zero_grad()
                 global_step += 1
 
-    def run_val(self, val_examples, task_name):
-        val_dataloader = self.get_eval_dataloader(val_examples)
+    def run_val(self, val_examples, task_name, verbose=True):
+        val_dataloader = self.get_eval_dataloader(val_examples, verbose=verbose)
         self.model.eval()
         total_eval_loss = 0
         nb_eval_steps, nb_eval_examples = 0, 0
@@ -289,8 +301,8 @@ class GlueTaskRunner:
             "metrics": compute_task_metrics(task_name, all_logits, all_labels),
         }
 
-    def run_test(self, test_examples):
-        test_dataloader = self.get_eval_dataloader(test_examples)
+    def run_test(self, test_examples, verbose=True):
+        test_dataloader = self.get_eval_dataloader(test_examples, verbose=verbose)
         self.model.eval()
         all_logits = []
         for step, batch in enumerate(tqdm(test_dataloader, desc="Predictions (Test)")):
@@ -302,9 +314,11 @@ class GlueTaskRunner:
         all_logits = np.concatenate(all_logits, axis=0)
         return all_logits
 
-    def get_train_dataloader(self, train_examples):
+    def get_train_dataloader(self, train_examples, verbose=True):
         train_features = convert_examples_to_features(
-            train_examples, self.label_map, self.rparams.max_seq_length, self.tokenizer)
+            train_examples, self.label_map, self.rparams.max_seq_length, self.tokenizer,
+            verbose=verbose,
+        )
         train_data, train_tokens = convert_to_dataset(train_features)
         if self.rparams.local_rank == -1:
             train_sampler = RandomSampler(train_data)
@@ -315,9 +329,11 @@ class GlueTaskRunner:
         )
         return HybridLoader(train_dataloader, train_tokens)
 
-    def get_eval_dataloader(self, eval_examples):
+    def get_eval_dataloader(self, eval_examples, verbose=True):
         eval_features = convert_examples_to_features(
-            eval_examples, self.label_map, self.rparams.max_seq_length, self.tokenizer)
+            eval_examples, self.label_map, self.rparams.max_seq_length, self.tokenizer,
+            verbose=verbose,
+        )
         eval_data, eval_tokens = convert_to_dataset(eval_features)
         eval_sampler = SequentialSampler(eval_data)
         eval_dataloader = DataLoader(

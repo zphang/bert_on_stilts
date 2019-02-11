@@ -425,8 +425,8 @@ class WnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "dev_matched.tsv")),
-            "dev_matched")
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")),
+            "dev")
 
     def get_test_examples(self, data_dir):
         """See base class."""
@@ -435,7 +435,7 @@ class WnliProcessor(DataProcessor):
 
     def get_labels(self):
         """See base class."""
-        return ["contradiction", "entailment", "neutral"]
+        return ["0", "1", "2"]
 
     def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
@@ -599,6 +599,7 @@ PROCESSORS = {
     "mnli": MnliProcessor,
     "qnli": QnliProcessor,
     "rte": RteProcessor,
+    "wnli": WnliProcessor,
     "xnli": XnliProcessor,
     "snli": SnliProcessor,
     "bcs": BcsProcessor,
@@ -614,5 +615,6 @@ DEFAULT_FOLDER_NAMES = {
     "mnli": "MNLI",
     "qnli": "QNLI",
     "rte": "RTE",
+    "wnli": "WNLI",
     "snli": "SNLI",
 }

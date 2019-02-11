@@ -82,7 +82,7 @@ class BertConfig(object):
                  use_adapter=False,
                  adapter_act="gelu",
                  adapter_size=64,
-                 adapter_initializer_range=0.02,
+                 adapter_initializer_range=0.0002,
                  ):
         """Constructs BertConfig.
 
@@ -270,9 +270,9 @@ class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.adapter = Adapter(config) if config.use_adapter else None
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
 
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
@@ -312,9 +312,9 @@ class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.adapter = Adapter(config) if config.use_adapter else None
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
 
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
@@ -572,6 +572,13 @@ class PreTrainedBertModel(nn.Module):
         model.load_from_state_dict(state_dict)
         return model
 
+    @classmethod
+    def from_state_dict_full(cls, config_file, state_dict, *inputs, **kwargs):
+        config = BertConfig.from_json_file(config_file)
+        model = cls(config, *inputs, **kwargs)
+        model.load_state_dict(state_dict)
+        return model
+
     def load_from_state_dict(self, state_dict):
         old_keys = []
         new_keys = []
@@ -666,8 +673,6 @@ class BertModel(PreTrainedBertModel):
         if config.use_adapter:
             for param in self.parameters():
                 param.requires_grad = False
-            for param in self.pooler.parameters():
-                param.requires_grad = True
             for name, sub_module in self.named_modules():
                 if isinstance(sub_module, (Adapter, BertLayerNorm)):
                     for param_name, param in sub_module.named_parameters():
