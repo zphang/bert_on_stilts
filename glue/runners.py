@@ -13,6 +13,11 @@ from .evaluate import compute_metrics
 logger = logging.getLogger(__name__)
 
 
+class LabelModes:
+    CLASSIFICATION = "CLASSIFICATION"
+    REGRESSION = "CLASSIFICATION"
+
+
 def warmup_linear(x, warmup=0.002):
     if x < warmup:
         return x/warmup
@@ -106,7 +111,10 @@ def convert_example_to_feature(example, tokenizer, max_seq_length, label_map, do
     assert len(input_mask) == max_seq_length
     assert len(segment_ids) == max_seq_length
 
-    label_id = label_map[example.label]
+    if is_null_label_map(label_map):
+        label_id = example.label
+    else:
+        label_id = label_map[example.label]
     return InputFeatures(
         guid=example,
         input_ids=input_ids,
@@ -141,8 +149,8 @@ def convert_examples_to_features(examples, label_map, max_seq_length, tokenizer,
     return features
 
 
-def convert_to_dataset(features):
-    full_batch = features_to_data(features)
+def convert_to_dataset(features, label_mode):
+    full_batch = features_to_data(features, label_mode=label_mode)
     if full_batch.label_ids is None:
         dataset = TensorDataset(full_batch.input_ids, full_batch.input_mask,
                                 full_batch.segment_ids)
@@ -152,12 +160,18 @@ def convert_to_dataset(features):
     return dataset, full_batch.tokens
 
 
-def features_to_data(features):
+def features_to_data(features, label_mode):
+    if label_mode == LabelModes.CLASSIFICATION:
+        label_type = torch.long
+    elif label_mode == LabelModes.REGRESSION:
+        label_type = torch.float
+    else:
+        raise KeyError(label_mode)
     return Batch(
         input_ids=torch.tensor([f.input_ids for f in features], dtype=torch.long),
         input_mask=torch.tensor([f.input_mask for f in features], dtype=torch.long),
         segment_ids=torch.tensor([f.segment_ids for f in features], dtype=torch.long),
-        label_ids=torch.tensor([f.label_id for f in features], dtype=torch.long),
+        label_ids=torch.tensor([f.label_id for f in features], dtype=label_type),
         tokens=[f.tokens for f in features],
     )
 
@@ -319,7 +333,9 @@ class GlueTaskRunner:
             train_examples, self.label_map, self.rparams.max_seq_length, self.tokenizer,
             verbose=verbose,
         )
-        train_data, train_tokens = convert_to_dataset(train_features)
+        train_data, train_tokens = convert_to_dataset(
+            train_features, label_mode=get_label_mode(self.label_map),
+        )
         if self.rparams.local_rank == -1:
             train_sampler = RandomSampler(train_data)
         else:
@@ -334,7 +350,9 @@ class GlueTaskRunner:
             eval_examples, self.label_map, self.rparams.max_seq_length, self.tokenizer,
             verbose=verbose,
         )
-        eval_data, eval_tokens = convert_to_dataset(eval_features)
+        eval_data, eval_tokens = convert_to_dataset(
+            eval_features, label_mode=get_label_mode(self.label_map),
+        )
         eval_sampler = SequentialSampler(eval_data)
         eval_dataloader = DataLoader(
             eval_data, sampler=eval_sampler, batch_size=self.rparams.eval_batch_size,
@@ -352,3 +370,14 @@ def compute_task_metrics(task_name, logits, labels):
         pred_srs=pred_arr,
         label_srs=labels,
     )
+
+
+def is_null_label_map(label_map):
+    return len(label_map) == 1 and label_map[None] == 0
+
+
+def get_label_mode(label_map):
+    if is_null_label_map(label_map):
+        return LabelModes.REGRESSION
+    else:
+        return LabelModes.CLASSIFICATION

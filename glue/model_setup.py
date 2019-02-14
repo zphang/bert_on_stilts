@@ -74,14 +74,14 @@ def create_model(task_type, bert_model_name, bert_load_mode, all_state,
 def create_from_pretrained(task_type, bert_model_name, cache_dir, num_labels):
     if task_type == TaskType.CLASSIFICATION:
         model = BertForSequenceClassification.from_pretrained(
-            pretrained_model_name=bert_model_name,
+            pretrained_model_name_or_path=bert_model_name,
             cache_dir=cache_dir,
             num_labels=num_labels,
         )
     elif task_type == TaskType.REGRESSION:
         assert num_labels == 1
         model = BertForSequenceRegression.from_pretrained(
-            pretrained_model_name=bert_model_name,
+            pretrained_model_name_or_path=bert_model_name,
             cache_dir=cache_dir,
         )
     else:
