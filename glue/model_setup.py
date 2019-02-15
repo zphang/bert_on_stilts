@@ -1,7 +1,10 @@
 import os
 import torch
 
-from pytorch_pretrained_bert.modeling import BertForSequenceClassification, BertForSequenceRegression
+from pytorch_pretrained_bert.modeling import (
+    BertConfig, BertForSequenceClassification, BertForSequenceRegression,
+    load_from_adapter,
+)
 from pytorch_pretrained_bert.optimization import BertAdam
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from pytorch_pretrained_bert.tokenization import (
@@ -32,7 +35,8 @@ def load_overall_state(bert_load_path, relaxed=True):
         return torch.load(bert_load_path)
 
 
-def create_model(task_type, bert_model_name, bert_load_mode, all_state,
+def create_model(task_type, bert_model_name, bert_load_mode, bert_load_args,
+                 all_state,
                  num_labels, device, n_gpu, fp16, local_rank,
                  bert_config_json_path=None):
     if bert_load_mode == "from_pretrained":
@@ -50,6 +54,16 @@ def create_model(task_type, bert_model_name, bert_load_mode, all_state,
             task_type=task_type,
             bert_model_name=bert_model_name,
             bert_load_mode=bert_load_mode,
+            all_state=all_state,
+            num_labels=num_labels,
+            bert_config_json_path=bert_config_json_path,
+        )
+    elif bert_load_mode in ["state_adapter"]:
+        model = load_bert_adapter(
+            task_type=task_type,
+            bert_model_name=bert_model_name,
+            bert_load_mode=bert_load_mode,
+            bert_load_args=bert_load_args,
             all_state=all_state,
             num_labels=num_labels,
             bert_config_json_path=bert_config_json_path,
@@ -130,11 +144,46 @@ def load_bert(task_type, bert_model_name, bert_load_mode, all_state, num_labels,
     return model
 
 
+def load_bert_adapter(task_type, bert_model_name, bert_load_mode, bert_load_args,
+                      all_state, num_labels, bert_config_json_path):
+    if bert_config_json_path is None:
+        bert_config_json_path = os.path.join(get_bert_config_path(bert_model_name), "bert_config.json")
+
+    if bert_load_mode in ["model_only_adapter"]:
+        adapter_state = all_state
+    elif bert_load_mode in ["state_adapter"]:
+        adapter_state = all_state["model"]
+    else:
+        raise KeyError(bert_load_mode)
+
+    # Format: "bert_model_path:{path}"
+    #  Very hackish
+    bert_state = torch.load(bert_load_args.replace("bert_model_path:", ""))
+
+    config = BertConfig.from_json_file(bert_config_json_path)
+    if task_type == TaskType.CLASSIFICATION:
+        model = BertForSequenceClassification(config, num_labels=num_labels)
+    elif task_type == TaskType.REGRESSION:
+        assert num_labels == 1
+        model = BertForSequenceRegression(config)
+    else:
+        raise KeyError(task_type)
+
+    load_from_adapter(
+        model=model,
+        bert_state=bert_state,
+        adapter_state=adapter_state,
+    )
+
+    return model
+
+
 def create_tokenizer(bert_model_name, bert_load_mode, do_lower_case, bert_vocab_path=None):
     if bert_load_mode == "from_pretrained":
         assert bert_vocab_path is None
         tokenizer = BertTokenizer.from_pretrained(bert_model_name, do_lower_case=do_lower_case)
-    elif bert_load_mode in ["model_only", "state_model_only", "state_all", "state_full_model"]:
+    elif bert_load_mode in ["model_only", "state_model_only", "state_all", "state_full_model",
+                            "state_adapter"]:
         tokenizer = load_tokenizer(
             bert_model_name=bert_model_name,
             do_lower_case=do_lower_case,
@@ -197,28 +246,42 @@ def create_optimizer(model, learning_rate, t_total, loss_scale, fp16, warmup_pro
 
 
 def save_bert(model, optimizer, args, save_path, save_mode="all"):
+    assert save_mode in [
+        "all", "tunable", "model_all", "model_tunable",
+    ]
+
+    save_dict = dict()
+
+    # Save args
+    save_dict["args"] = vars(args)
+
+    # Save model
     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model itself
-    if save_mode == "all":
+    if save_mode in ["all", "model_all"]:
         model_state_dict = model_to_save.state_dict()
-    elif save_mode == "tunable":
-        # Drop non-trainable params, but keep
-        # Sort of a hack, because it's not really clear when we want/don't want state params,
-        #   But for now, layer norm works in our favor. But this will be annoying.
-        model_state_dict = model_to_save.state_dict()
-        for name, param in model.named_parameters():
-            if not param.requires_grad:
-                print("    Skip {}".format(name))
-                del model_state_dict[name]
+    elif save_mode in ["tunable", "model_tunable"]:
+        model_state_dict = get_tunable_state_dict(model_to_save)
     else:
         raise KeyError(save_mode)
-
-    optimizer_state_dict = utils.to_cpu(optimizer.state_dict()) if optimizer is not None else None
-
     print("Saving {} model elems:".format(len(model_state_dict)))
-    print("Saving {} optim elems:".format(len(optimizer_state_dict)))
+    save_dict["model"] = utils.to_cpu(model_state_dict)
 
-    torch.save({
-        "model": model_state_dict,
-        "optimizer": optimizer_state_dict,
-        "args": vars(args),
-    }, save_path)
+    # Save optimizer
+    if save_mode in ["all", "tunable"]:
+        optimizer_state_dict = utils.to_cpu(optimizer.state_dict()) if optimizer is not None else None
+        print("Saving {} optimizer elems:".format(len(optimizer_state_dict)))
+
+    torch.save(save_dict, save_path)
+
+
+def get_tunable_state_dict(model, verbose=True):
+    # Drop non-trainable params
+    # Sort of a hack, because it's not really clear when we want/don't want state params,
+    #   But for now, layer norm works in our favor. But this will be annoying.
+    model_state_dict = model.state_dict()
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            if verbose:
+                print("    Skip {}".format(name))
+            del model_state_dict[name]
+    return model_state_dict

@@ -4,7 +4,6 @@ import json
 import numpy as np
 import os
 import pandas as pd
-import sys
 import random
 
 import logging
@@ -12,7 +11,6 @@ import logging
 from glue.tasks import PROCESSORS, DEFAULT_FOLDER_NAMES
 from glue.runners import GlueTaskRunner, RunnerParameters
 from glue import model_setup
-from pytorch_pretrained_bert import utils
 
 
 def get_args(*in_args):
@@ -42,6 +40,7 @@ def get_args(*in_args):
     parser.add_argument("--bert_load_path", default=None, type=str)
     parser.add_argument("--bert_load_mode", default="from_pretrained", type=str,
                         help="from_pretrained, model_only, state_model_only, state_all")
+    parser.add_argument("--bert_load_args", default=None, type=str)
     parser.add_argument("--bert_config_json_path", default=None, type=str)
     parser.add_argument("--bert_vocab_path", default=None, type=str)
     parser.add_argument("--bert_save_mode", default="all", type=str)
@@ -181,6 +180,7 @@ def main():
         task_type=task_processor.TASK_TYPE,
         bert_model_name=args.bert_model,
         bert_load_mode=args.bert_load_mode,
+        bert_load_args=args.bert_load_args,
         all_state=all_state,
         num_labels=len(task_processor.get_labels()),
         device=device,

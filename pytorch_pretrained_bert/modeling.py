@@ -1303,3 +1303,27 @@ class BertForQuestionAnswering(BertPreTrainedModel):
             return total_loss
         else:
             return start_logits, end_logits
+
+
+def load_from_adapter(model, bert_state, adapter_state):
+    model_state_dict = model.state_dict()
+    # Only LayerNorms are overwritten
+    for elem in set(bert_state).intersection(set(adapter_state)):
+        assert "LayerNorm" in elem
+
+    # We ignore the next-sentence prediction head
+    for k in set(bert_state) - set(model_state_dict):
+        assert k.startswith("cls.")
+        del bert_state[k]
+
+    # Load bert weights
+    for k in bert_state:
+        assert k in model_state_dict
+        model_state_dict[k] = bert_state[k]
+
+    # Load adapter weights
+    for k in adapter_state:
+        assert k in model_state_dict
+        model_state_dict[k] = adapter_state[k]
+
+    model.load_state_dict(model_state_dict)
