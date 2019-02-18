@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class LabelModes:
     CLASSIFICATION = "CLASSIFICATION"
-    REGRESSION = "CLASSIFICATION"
+    REGRESSION = "REGRESSION"
 
 
 def warmup_linear(x, warmup=0.002):

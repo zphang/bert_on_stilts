@@ -65,6 +65,9 @@ class ColaProcessor(DataProcessor):
         """Creates examples for the training and dev sets."""
         examples = []
         for (i, line) in enumerate(lines):
+            # Only the test set has a header
+            if set_type == "test" and i == 0:
+                continue
             guid = "%s-%s" % (set_type, i)
             if set_type == "test":
                 text_a = line[1]
@@ -124,7 +127,6 @@ class MrpcProcessor(DataProcessor):
 
     def get_train_examples(self, data_dir):
         """See base class."""
-        logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.tsv")))
         return self._create_examples(
             self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
 
@@ -264,7 +266,7 @@ class MnliProcessor(DataProcessor):
     def get_test_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
+            self._read_tsv(os.path.join(data_dir, "test_matched.tsv")), "test")
 
     def get_labels(self):
         """See base class."""
@@ -368,7 +370,7 @@ class QnliProcessor(DataProcessor):
             else:
                 label = line[-1]
             examples.append(
-                    InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
 
 
