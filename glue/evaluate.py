@@ -69,8 +69,8 @@ def acc_and_f1(pred_srs, label_srs):
 
 
 def pearson_and_spearman(pred_srs, label_srs):
-    pearson_corr = pearsonr(pred_srs, label_srs)[0]
-    spearman_corr = spearmanr(pred_srs, label_srs)[0]
+    pearson_corr = float(pearsonr(pred_srs, label_srs)[0])
+    spearman_corr = float(spearmanr(pred_srs, label_srs)[0])
     return {
         "pearson": pearson_corr,
         "spearmanr": spearman_corr,
