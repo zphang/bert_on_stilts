@@ -9,6 +9,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from .core import InputFeatures, Batch, InputExample, TokenizedExample
 from .evaluate import compute_metrics
+from pytorch_pretrained_bert.utils import truncate_seq_pair
 
 logger = logging.getLogger(__name__)
 
@@ -32,23 +33,6 @@ def warmup_linear(x, warmup=0.002):
     return 1.0 - x
 
 
-def _truncate_seq_pair(tokens_a, tokens_b, max_length):
-    """Truncates a sequence pair in place to the maximum length."""
-
-    # This is a simple heuristic which will always truncate the longer sequence
-    # one token at a time. This makes more sense than truncating an equal percent
-    # of tokens from each, since if one sequence is very short then each token
-    # that's truncated likely contains more information than a longer sequence.
-    while True:
-        total_length = len(tokens_a) + len(tokens_b)
-        if total_length <= max_length:
-            break
-        if len(tokens_a) > len(tokens_b):
-            tokens_a.pop()
-        else:
-            tokens_b.pop()
-
-
 def tokenize_example(example, tokenizer):
     tokens_a = tokenizer.tokenize(example.text_a)
     if example.text_b:
@@ -63,7 +47,7 @@ def tokenize_example(example, tokenizer):
     )
 
 
-def convert_example_to_feature(example, tokenizer, max_seq_length, label_map, do_tokenize=True):
+def convert_example_to_feature(example, tokenizer, max_seq_length, label_map):
     if isinstance(example, InputExample):
         example = tokenize_example(example, tokenizer)
 
@@ -72,7 +56,7 @@ def convert_example_to_feature(example, tokenizer, max_seq_length, label_map, do
         # Modifies `tokens_a` and `tokens_b` in place so that the total
         # length is less than the specified length.
         # Account for [CLS], [SEP], [SEP] with "- 3"
-        _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
+        truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
     else:
         # Account for [CLS] and [SEP] with "- 2"
         if len(tokens_a) > max_seq_length - 2:
@@ -124,7 +108,7 @@ def convert_example_to_feature(example, tokenizer, max_seq_length, label_map, do
     else:
         label_id = label_map[example.label]
     return InputFeatures(
-        guid=example,
+        guid=example.guid,
         input_ids=input_ids,
         input_mask=input_mask,
         segment_ids=segment_ids,
@@ -197,6 +181,8 @@ class HybridLoader:
             elif len(batch) == 3:
                 input_ids, input_mask, segment_ids = batch
                 label_ids = None
+            else:
+                raise RuntimeError()
             batch_tokens = self.tokens[i * batch_size: (i+1) * batch_size]
             yield Batch(
                 input_ids=input_ids,
