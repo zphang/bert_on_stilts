@@ -18,6 +18,14 @@ class LabelModes:
     REGRESSION = "REGRESSION"
 
 
+class TrainEpochState:
+    def __init__(self):
+        self.tr_loss = 0
+        self.global_step = 0
+        self.nb_tr_examples = 0
+        self.nb_tr_steps = 0
+
+
 def warmup_linear(x, warmup=0.002):
     if x < warmup:
         return x/warmup
@@ -253,34 +261,44 @@ class GlueTaskRunner:
         return epoch_result_dict
 
     def run_train_epoch(self, train_dataloader):
-        self.model.train()
-        tr_loss = 0
-        global_step = 0
-        nb_tr_examples, nb_tr_steps = 0, 0
-        for step, batch in enumerate(tqdm(train_dataloader, desc="Training")):
-            batch = batch.to(self.device)
-            loss = self.model(batch.input_ids, batch.segment_ids, batch.input_mask, batch.label_ids)
-            if self.rparams.n_gpu > 1:
-                loss = loss.mean()  # mean() to average on multi-gpu.
-            if self.rparams.gradient_accumulation_steps > 1:
-                loss = loss / self.rparams.gradient_accumulation_steps
-            if self.rparams.fp16:
-                self.optimizer.backward(loss)
-            else:
-                loss.backward()
+        for _ in self.run_train_epoch_context(train_dataloader):
+            pass
 
-            tr_loss += loss.item()
-            nb_tr_examples += batch.input_ids.size(0)
-            nb_tr_steps += 1
-            if (step + 1) % self.rparams.gradient_accumulation_steps == 0:
-                # modify learning rate with special warm up BERT uses
-                lr_this_step = self.rparams.learning_rate * warmup_linear(
-                    global_step / self.rparams.t_total, self.rparams.warmup_proportion)
-                for param_group in self.optimizer.param_groups:
-                    param_group['lr'] = lr_this_step
-                self.optimizer.step()
-                self.optimizer.zero_grad()
-                global_step += 1
+    def run_train_epoch_context(self, train_dataloader):
+        self.model.train()
+        train_epoch_state = TrainEpochState()
+        for step, batch in enumerate(tqdm(train_dataloader, desc="Training")):
+            self.run_train_step(
+                step=step,
+                batch=batch,
+                train_epoch_state=train_epoch_state,
+            )
+            yield step, batch, train_epoch_state
+
+    def run_train_step(self, step, batch, train_epoch_state):
+        batch = batch.to(self.device)
+        loss = self.model(batch.input_ids, batch.segment_ids, batch.input_mask, batch.label_ids)
+        if self.rparams.n_gpu > 1:
+            loss = loss.mean()  # mean() to average on multi-gpu.
+        if self.rparams.gradient_accumulation_steps > 1:
+            loss = loss / self.rparams.gradient_accumulation_steps
+        if self.rparams.fp16:
+            self.optimizer.backward(loss)
+        else:
+            loss.backward()
+
+        train_epoch_state.tr_loss += loss.item()
+        train_epoch_state.nb_tr_examples += batch.input_ids.size(0)
+        train_epoch_state.nb_tr_steps += 1
+        if (step + 1) % self.rparams.gradient_accumulation_steps == 0:
+            # modify learning rate with special warm up BERT uses
+            lr_this_step = self.rparams.learning_rate * warmup_linear(
+                train_epoch_state.global_step / self.rparams.t_total, self.rparams.warmup_proportion)
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = lr_this_step
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            train_epoch_state.global_step += 1
 
     def run_val(self, val_examples, task_name, verbose=True):
         val_dataloader = self.get_eval_dataloader(val_examples, verbose=verbose)

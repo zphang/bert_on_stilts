@@ -645,6 +645,7 @@ class BertPreTrainedModel(nn.Module):
             return load_tf_weights_in_bert(model, weights_path)
         # Load from a PyTorch state_dict
         model.load_from_state_dict(state_dict)
+        return model
 
     @classmethod
     def from_state_dict(cls, config_file, state_dict, *inputs, **kwargs):

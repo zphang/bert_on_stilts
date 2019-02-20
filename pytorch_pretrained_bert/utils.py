@@ -12,3 +12,15 @@ def to_cpu(state_dict):
         else:
             new_state_dict[k] = v.cpu()
     return new_state_dict
+
+
+def only_one_of(ls):
+    return count_bool(ls) == 1
+
+
+def at_most_one_of(ls):
+    return count_bool(ls) <= 1
+
+
+def count_bool(ls):
+    return sum([1 if elem else 0 for elem in ls])

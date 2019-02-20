@@ -11,6 +11,7 @@ import logging
 from glue.tasks import PROCESSORS, DEFAULT_FOLDER_NAMES
 from glue.runners import GlueTaskRunner, RunnerParameters
 from glue import model_setup
+from pytorch_pretrained_bert.utils import at_most_one_of
 
 
 def get_args(*in_args):
@@ -65,6 +66,7 @@ def get_args(*in_args):
     parser.add_argument("--do_val_history",
                         action='store_true',
                         help="")
+    parser.add_argument("--train_save_every", type=int, default=None)
     parser.add_argument("--do_lower_case",
                         action='store_true',
                         help="Set this flag if you are using an uncased model.")
@@ -237,6 +239,7 @@ def main():
     )
 
     if args.do_train:
+        assert at_most_one_of([args.do_val_history, args.train_save_every])
         if args.do_val_history:
             val_examples = task_processor.get_dev_examples(data_dir)
             results = runner.run_train_val(
@@ -247,6 +250,20 @@ def main():
             metrics_str = json.dumps(results, indent=2)
             with open(os.path.join(args.output_dir, "val_metrics_history.json"), "w") as f:
                 f.write(metrics_str)
+        elif args.train_save_every:
+            train_dataloader = runner.get_train_dataloader(train_examples, verbose=not args.not_verbose)
+            for epoch in range(int(args.num_train_epochs)):
+                for step, _, _ in runner.run_train_epoch_context(train_dataloader):
+                    if step % args.train_save_every == args.train_save_every - 1 \
+                            or step == len(train_dataloader) - 1:
+                        model_setup.save_bert(
+                            model=model, optimizer=optimizer, args=args,
+                            save_path=os.path.join(
+                                args.output_dir, f"all_state___epoch{epoch:04d}___batch{step:06d}.p"
+                            ),
+                            save_mode=args.bert_save_mode,
+                            verbose=not args.not_verbose,
+                        )
         else:
             runner.run_train(train_examples)
 

@@ -245,7 +245,7 @@ def create_optimizer(model, learning_rate, t_total, loss_scale, fp16, warmup_pro
     return optimizer
 
 
-def save_bert(model, optimizer, args, save_path, save_mode="all"):
+def save_bert(model, optimizer, args, save_path, save_mode="all", verbose=True):
     assert save_mode in [
         "all", "tunable", "model_all", "model_tunable",
     ]
@@ -263,13 +263,15 @@ def save_bert(model, optimizer, args, save_path, save_mode="all"):
         model_state_dict = get_tunable_state_dict(model_to_save)
     else:
         raise KeyError(save_mode)
-    print("Saving {} model elems:".format(len(model_state_dict)))
+    if verbose:
+        print("Saving {} model elems:".format(len(model_state_dict)))
     save_dict["model"] = utils.to_cpu(model_state_dict)
 
     # Save optimizer
     if save_mode in ["all", "tunable"]:
         optimizer_state_dict = utils.to_cpu(optimizer.state_dict()) if optimizer is not None else None
-        print("Saving {} optimizer elems:".format(len(optimizer_state_dict)))
+        if verbose:
+            print("Saving {} optimizer elems:".format(len(optimizer_state_dict)))
 
     torch.save(save_dict, save_path)
 
