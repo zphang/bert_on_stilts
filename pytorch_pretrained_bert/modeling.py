@@ -1308,6 +1308,12 @@ class BertForQuestionAnswering(BertPreTrainedModel):
             return start_logits, end_logits
 
 
+class BertSharedModel(nn.Module):
+    def __init__(self, bert_model_list):
+        pass
+
+
+
 def load_from_adapter(model, bert_state, adapter_state):
     model_state_dict = model.state_dict()
     # Only LayerNorms are overwritten
