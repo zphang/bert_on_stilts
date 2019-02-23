@@ -511,7 +511,6 @@ def main():
 
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
-    #train_examples = None
     num_train_optimization_steps = None
     if args.do_train:
         print("Loading Train Dataset", args.train_file)

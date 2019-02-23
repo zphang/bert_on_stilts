@@ -620,3 +620,31 @@ DEFAULT_FOLDER_NAMES = {
     "wnli": "WNLI",
     "snli": "SNLI",
 }
+
+
+class Task:
+    def __init__(self, name, processor, data_dir):
+        self.name = name
+        self.processor = processor
+        self.data_dir = data_dir
+        self.task_type = processor.TASK_TYPE
+
+    def get_train_examples(self):
+        return self.processor.get_train_examples(self.data_dir)
+
+    def get_dev_examples(self):
+        return self.processor.get_train_examples(self.data_dir)
+
+    def get_test_examples(self):
+        return self.processor.get_train_examples(self.data_dir)
+
+    def get_labels(self):
+        return self.processor.get_labels()
+
+
+def get_task(task_name, data_dir):
+    task_name = task_name.lower()
+    task_processor = PROCESSORS[task_name]()
+    if data_dir is None:
+        data_dir = os.path.join(os.environ["GLUE_DIR"], DEFAULT_FOLDER_NAMES[task_name])
+    return Task(task_name, task_processor, data_dir)

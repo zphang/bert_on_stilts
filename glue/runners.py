@@ -10,6 +10,7 @@ from torch.utils.data.distributed import DistributedSampler
 from .core import InputFeatures, Batch, InputExample, TokenizedExample
 from .evaluate import compute_metrics
 from pytorch_pretrained_bert.utils import truncate_seq_pair
+from shared.runners import warmup_linear
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +26,6 @@ class TrainEpochState:
         self.global_step = 0
         self.nb_tr_examples = 0
         self.nb_tr_steps = 0
-
-
-def warmup_linear(x, warmup=0.002):
-    if x < warmup:
-        return x/warmup
-    return 1.0 - x
 
 
 def tokenize_example(example, tokenizer):
@@ -199,8 +194,7 @@ class HybridLoader:
 class RunnerParameters:
     def __init__(self, max_seq_length, local_rank, n_gpu, fp16,
                  learning_rate, gradient_accumulation_steps, t_total, warmup_proportion,
-                 num_train_epochs, num_train_steps,
-                 train_batch_size, eval_batch_size):
+                 num_train_epochs, train_batch_size, eval_batch_size):
         self.max_seq_length = max_seq_length
         self.local_rank = local_rank
         self.n_gpu = n_gpu
@@ -210,7 +204,6 @@ class RunnerParameters:
         self.t_total = t_total
         self.warmup_proportion = warmup_proportion
         self.num_train_epochs = num_train_epochs
-        self.num_train_steps = num_train_steps
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
 
@@ -230,7 +223,7 @@ class GlueTaskRunner:
             logger.info("***** Running training *****")
             logger.info("  Num examples = %d", len(train_examples))
             logger.info("  Batch size = %d", self.rparams.train_batch_size)
-            logger.info("  Num steps = %d", self.rparams.num_train_steps)
+            logger.info("  Num steps = %d", self.rparams.t_total)
         train_dataloader = self.get_train_dataloader(train_examples, verbose=verbose)
 
         for _ in trange(int(self.rparams.num_train_epochs), desc="Epoch"):

@@ -1,17 +1,19 @@
 import argparse
-import torch
 import json
-import numpy as np
 import os
 import pandas as pd
-import random
 
 import logging
 
-from glue.tasks import PROCESSORS, DEFAULT_FOLDER_NAMES
+from glue.tasks import get_task, MnliMismatchedProcessor
 from glue.runners import GlueTaskRunner, RunnerParameters
-from glue import model_setup
+from glue import model_setup as glue_model_setup
+from shared import model_setup as shared_model_setup
 from pytorch_pretrained_bert.utils import at_most_one_of
+import shared.initialization as initialization
+import shared.log_info as log_info
+
+# todo: cleanup imports
 
 
 def get_args(*in_args):
@@ -111,7 +113,8 @@ def get_args(*in_args):
                         help="Whether to use 16-bit float precision instead of 32-bit")
     parser.add_argument('--loss_scale',
                         type=float, default=0,
-                        help="Loss scaling to improve fp16 numeric stability. Only used when fp16 set to True.\n"
+                        help="Loss scaling to improve fp16 numeric stability. "
+                             "Only used when fp16 set to True.\n"
                              "0 (default value): dynamic loss scaling.\n"
                              "Positive power of 2: static loss scaling value.\n")
     parser.add_argument('--print-trainable-params', action="store_true")
@@ -122,69 +125,34 @@ def get_args(*in_args):
 
 
 def main():
-    args = get_args()
-    for k, v in vars(get_args).items():
-        print("  {}: {}".format(k, v))
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
                         level=logging.INFO)
     logger = logging.getLogger(__name__)
+    args = get_args()
+    log_info.print_args(args)
 
-    if args.local_rank == -1 or args.no_cuda:
-        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
-        n_gpu = torch.cuda.device_count()
-    else:
-        torch.cuda.set_device(args.local_rank)
-        device = torch.device("cuda", args.local_rank)
-        n_gpu = 1
-        # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
-        torch.distributed.init_process_group(backend='nccl')
-    logger.info("device: {} n_gpu: {}, distributed training: {}, 16-bits training: {}".format(
-        device, n_gpu, bool(args.local_rank != -1), args.fp16))
+    device, n_gpu = initialization.init_cuda_from_args(args, logger=logger)
+    initialization.init_seed(args, n_gpu=n_gpu, logger=logger)
+    initialization.init_train_batch_size(args)
+    initialization.init_output_dir(args)
+    initialization.save_args(args)
+    task = get_task(args.task_name, args.data_dir)
 
-    if args.gradient_accumulation_steps < 1:
-        raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
-                            args.gradient_accumulation_steps))
-    args.train_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
-
-    seed = get_seed(args.seed)
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    print("Using seed: {}".format(seed))
-
-    if n_gpu > 0:
-        torch.cuda.manual_seed_all(args.seed)
-
-    if not(args.do_train or args.do_val or args.do_test):
-        raise ValueError("At least one of `do_train` or `do_val` or `do_test` must be True.")
-
-    if not args.force_overwrite \
-            and (os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train):
-        raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    task_name = args.task_name.lower()
-    task_processor = PROCESSORS[task_name]()
-    if args.data_dir is None:
-        data_dir = os.path.join(os.environ["GLUE_DIR"], DEFAULT_FOLDER_NAMES[task_name])
-    else:
-        data_dir = args.data_dir
-
-    tokenizer = model_setup.create_tokenizer(
+    tokenizer = shared_model_setup.create_tokenizer(
         bert_model_name=args.bert_model,
         bert_load_mode=args.bert_load_mode,
         do_lower_case=args.do_lower_case,
         bert_vocab_path=args.bert_vocab_path,
     )
-    all_state = model_setup.load_overall_state(args.bert_load_path, relaxed=True)
-    model = model_setup.create_model(
-        task_type=task_processor.TASK_TYPE,
+    all_state = shared_model_setup.load_overall_state(args.bert_load_path, relaxed=True)
+    model = glue_model_setup.create_model(
+        task_type=task.processor.TASK_TYPE,
         bert_model_name=args.bert_model,
         bert_load_mode=args.bert_load_mode,
         bert_load_args=args.bert_load_args,
         all_state=all_state,
-        num_labels=len(task_processor.get_labels()),
+        num_labels=len(task.processor.get_labels()),
         device=device,
         n_gpu=n_gpu,
         fp16=args.fp16,
@@ -193,21 +161,13 @@ def main():
     )
     if args.do_train:
         if args.print_trainable_params:
-            print("TRAINABLE PARAMS:")
-            for param_name, param in model.named_parameters():
-                if param.requires_grad:
-                    print("    {}  {}".format(param_name, tuple(param.shape)))
-        train_examples = task_processor.get_train_examples(data_dir)
-        num_train_steps = int(
-            len(train_examples)
-            / args.train_batch_size
-            / args.gradient_accumulation_steps
-            * args.num_train_epochs,
+            log_info.print_trainable_params(model)
+        train_examples = task.get_train_examples()
+        t_total = shared_model_setup.get_opt_train_steps(
+            num_train_examples=len(train_examples),
+            args=args,
         )
-        t_total = num_train_steps
-        if args.local_rank != -1:
-            t_total = t_total // torch.distributed.get_world_size()
-        optimizer = model_setup.create_optimizer(
+        optimizer = shared_model_setup.create_optimizer(
             model=model,
             learning_rate=args.learning_rate,
             t_total=t_total,
@@ -218,7 +178,6 @@ def main():
         )
     else:
         train_examples = None
-        num_train_steps = 0
         t_total = 0
         optimizer = None
 
@@ -226,14 +185,14 @@ def main():
         model=model,
         optimizer=optimizer,
         tokenizer=tokenizer,
-        label_list=task_processor.get_labels(),
+        label_list=task.get_labels(),
         device=device,
         rparams=RunnerParameters(
             max_seq_length=args.max_seq_length,
             local_rank=args.local_rank, n_gpu=n_gpu, fp16=args.fp16,
             learning_rate=args.learning_rate, gradient_accumulation_steps=args.gradient_accumulation_steps,
             t_total=t_total, warmup_proportion=args.warmup_proportion,
-            num_train_epochs=args.num_train_epochs, num_train_steps=num_train_steps,
+            num_train_epochs=args.num_train_epochs,
             train_batch_size=args.train_batch_size, eval_batch_size=args.eval_batch_size,
         )
     )
@@ -241,11 +200,11 @@ def main():
     if args.do_train:
         assert at_most_one_of([args.do_val_history, args.train_save_every])
         if args.do_val_history:
-            val_examples = task_processor.get_dev_examples(data_dir)
+            val_examples = task.get_dev_examples()
             results = runner.run_train_val(
                 train_examples=train_examples,
                 val_examples=val_examples,
-                task_name=task_name,
+                task_name=task.name,
             )
             metrics_str = json.dumps(results, indent=2)
             with open(os.path.join(args.output_dir, "val_metrics_history.json"), "w") as f:
@@ -256,7 +215,7 @@ def main():
                 for step, _, _ in runner.run_train_epoch_context(train_dataloader):
                     if step % args.train_save_every == args.train_save_every - 1 \
                             or step == len(train_dataloader) - 1:
-                        model_setup.save_bert(
+                        glue_model_setup.save_bert(
                             model=model, optimizer=optimizer, args=args,
                             save_path=os.path.join(
                                 args.output_dir, f"all_state___epoch{epoch:04d}___batch{step:06d}.p"
@@ -269,15 +228,15 @@ def main():
 
     if args.do_save:
         # Save a trained model
-        model_setup.save_bert(
+        glue_model_setup.save_bert(
             model=model, optimizer=optimizer, args=args,
             save_path=os.path.join(args.output_dir, "all_state.p"),
             save_mode=args.bert_save_mode,
         )
 
     if args.do_val:
-        val_examples = task_processor.get_dev_examples(data_dir)
-        results = runner.run_val(val_examples, task_name=task_name, verbose=not args.not_verbose)
+        val_examples = task.get_dev_examples()
+        results = runner.run_val(val_examples, task_name=task.name, verbose=not args.not_verbose)
         df = pd.DataFrame(results["logits"])
         df.to_csv(os.path.join(args.output_dir, "val_preds.csv"), header=False, index=False)
         metrics_str = json.dumps({"loss": results["loss"], "metrics": results["metrics"]}, indent=2)
@@ -286,9 +245,9 @@ def main():
             f.write(metrics_str)
 
         # HACK for MNLI-mismatched
-        if task_name == "mnli":
-            mm_val_examples = PROCESSORS["mnli-mm"].get_dev_examples(data_dir)
-            mm_results = runner.run_val(mm_val_examples, task_name=task_name, verbose=not args.not_verbose)
+        if task.name == "mnli":
+            mm_val_examples = MnliMismatchedProcessor().get_dev_examples(task.data_dir)
+            mm_results = runner.run_val(mm_val_examples, task_name=task.name, verbose=not args.not_verbose)
             df = pd.DataFrame(results["logits"])
             df.to_csv(os.path.join(args.output_dir, "mm_val_preds.csv"), header=False, index=False)
             combined_metrics = {}
@@ -304,24 +263,17 @@ def main():
                 f.write(combined_metrics_str)
 
     if args.do_test:
-        test_examples = task_processor.get_test_examples(data_dir)
+        test_examples = task.get_test_examples()
         logits = runner.run_test(test_examples, verbose=not args.not_verbose)
         df = pd.DataFrame(logits)
         df.to_csv(os.path.join(args.output_dir, "test_preds.csv"), header=False, index=False)
 
         # HACK for MNLI-mismatched
-        if task_name == "mnli":
-            test_examples = PROCESSORS["mnli-mm"].get_test_examples(data_dir)
+        if task.name == "mnli":
+            test_examples = MnliMismatchedProcessor().get_test_examples(task.data_dir)
             logits = runner.run_test(test_examples)
             df = pd.DataFrame(logits)
             df.to_csv(os.path.join(args.output_dir, "mm_test_preds.csv"), header=False, index=False)
-
-
-def get_seed(seed):
-    if seed == -1:
-        return np.random.randint(0, 2**32 - 1)
-    else:
-        return seed
 
 
 if __name__ == "__main__":

@@ -652,6 +652,10 @@ class BertPreTrainedModel(nn.Module):
     def from_state_dict(cls, config_file, state_dict, *inputs, **kwargs):
         config = BertConfig.from_json_file(config_file)
         model = cls(config, *inputs, **kwargs)
+        for key in list(state_dict):
+            if not key.startswith("bert."):
+                logger.info(f"from_state_dict: Dropping {key}")
+                del state_dict[key]
         model.load_from_state_dict(state_dict)
         return model
 
@@ -1308,10 +1312,11 @@ class BertForQuestionAnswering(BertPreTrainedModel):
             return start_logits, end_logits
 
 
-class BertSharedModel(nn.Module):
-    def __init__(self, bert_model_list):
-        pass
-
+def sync_bert(bert_model_list):
+    assert len(bert_model_list) >= 1
+    bert = bert_model_list[0].bert
+    for bert_model in bert_model_list[1:]:
+        bert_model.bert = bert
 
 
 def load_from_adapter(model, bert_state, adapter_state):

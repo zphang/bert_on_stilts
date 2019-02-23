@@ -1,6 +1,8 @@
 import logging
 import random
 
+from torch.utils.data import Dataset
+
 logger = logging.getLogger(__name__)
 
 
