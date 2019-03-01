@@ -118,11 +118,11 @@ python glue/train.py \
 
 ## FAQ
 
-> What does STILTs stand for?
+> Q: What does STILTs stand for?
 
 STILTs stand for ***S**upplementary **T**raining on **I**ntermediate **L**abeled-data **T**asks*.
 
-> That's it? You finetune on one task, then finetune on another?
+> Q: That's it? You finetune on one task, then finetune on another?
 
 Yes—in some sense, this is the simplest possible approach to pretrain/multi-task-train on another task. We do not perform multi-task training or balancing of multi-task losses, any additional hyperparameter search, early stopping or any other modification to the training procedure. We simply apply the standard BERT training procedure *twice*.
 
@@ -134,17 +134,17 @@ So far, we have observed three main benefits of STILTs:
 2. STILTs tends to stabilize training on tasks with little data
 3. In cases where the intermediate and target tasks are closely related (e.g. MNLI/RTE), we observe a significant improvement in performance. 
 
-> The paper/abstract mentions a GLUE score of 81.8, while the leaderboard shows 82.0. What's going on?
+> Q: The paper/abstract mentions a GLUE score of 81.8, while the leaderboard shows 82.0. What's going on?
 
 The GLUE benchmark underwent an update wherein QNLI(v1) was replaced by a QNLIv2, which has a different train/val/test split. The GLUE leaderboard currently reports QNLIv2 scores. On the other hand, all experiments in the paper were run on QNLIv1, so we chose to report the GLUE score based on QNLIv1 in the paper.
 
 In short, with QNLIv1, we get a GLUE score of 81.8. With QNLIv2, we got a score of 82.0.
 
-> When I run finetuning on CoLA/MRPC/STS-B/RTE, I get terrible results. Why?
+> Q: When I run finetuning on CoLA/MRPC/STS-B/RTE, I get terrible results. Why?
 
 Finetuning BERT-Large on tasks with little training data (<10k) tends to be unstable. This is referenced in the original BERT paper.
 
-> Where are the other models (GPT, ELMo) referenced in the paper?
+> Q: Where are the other models (GPT, ELMo) referenced in the paper?
 
 Those results were obtained using the [jiant](https://github.com/jsalt18-sentence-repl/jiant) framework. We currently have no plans to publish the trained models for those experiments.  
 
