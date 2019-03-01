@@ -13,7 +13,7 @@ STILTs is a method for supplementary training on an intermediate task before fin
 *Coming: 03/01/2019*
 
 | Base Model | Intermediate Task | Target Task | Download | Val Score |
-| :---: | :---: | :---: | :---: | : --- : |
+| :---: | :---: | :---: | :---: | :---: |
 | BERT   | N/A      | **CoLA**   | Link | - |
 | BERT   | **MNLI** | **SST**    | Link | - |
 | BERT   | **MNLI** | **MRPC**   | Link | - |
