@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def to_cpu(state_dict):
     new_state_dict = {}
     for k, v in state_dict.items():
@@ -41,3 +44,8 @@ def truncate_seq_pair(tokens_a, tokens_b, max_length):
             tokens_a.pop()
         else:
             tokens_b.pop()
+
+
+def random_sample(ls, size, replace=True):
+    indices = np.random.choice(range(len(ls)), size=size, replace=replace)
+    return [ls[i] for i in indices]

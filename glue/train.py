@@ -9,7 +9,7 @@ from glue.tasks import get_task, MnliMismatchedProcessor
 from glue.runners import GlueTaskRunner, RunnerParameters
 from glue import model_setup as glue_model_setup
 from shared import model_setup as shared_model_setup
-from pytorch_pretrained_bert.utils import at_most_one_of
+from pytorch_pretrained_bert.utils import at_most_one_of, random_sample
 import shared.initialization as initialization
 import shared.log_info as log_info
 
@@ -68,6 +68,7 @@ def get_args(*in_args):
     parser.add_argument("--do_val_history",
                         action='store_true',
                         help="")
+    parser.add_argument("--train_examples_number", type=int, default=None)
     parser.add_argument("--train_save_every", type=int, default=None)
     parser.add_argument("--do_lower_case",
                         action='store_true',
@@ -163,6 +164,8 @@ def main():
         if args.print_trainable_params:
             log_info.print_trainable_params(model)
         train_examples = task.get_train_examples()
+        if args.train_examples_number is not None:
+            train_examples = random_sample(train_examples, args.train_examples_number)
         t_total = shared_model_setup.get_opt_train_steps(
             num_train_examples=len(train_examples),
             args=args,
