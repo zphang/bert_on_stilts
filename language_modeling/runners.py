@@ -26,7 +26,6 @@ def tokenize_example(example, tokenizer):
         tokens_a=tokens_a,
         tokens_b=tokens_b,
         is_next=example.is_next,
-        lm_labels=example.lm_labels,
     )
 
 
@@ -92,7 +91,7 @@ def convert_example_to_features(example, tokenizer, max_seq_length, select_prob=
 def convert_examples_to_features(examples, max_seq_length, tokenizer,
                                  select_prob=0.15, verbose=True):
     features = []
-    for (ex_index, example) in enumerate(examples):
+    for (ex_index, example) in enumerate(tqdm(examples)):
         feature_instance = convert_example_to_features(
             example=example,
             tokenizer=tokenizer,
@@ -275,6 +274,7 @@ class LMDataset(Dataset):
 
         t1, t2, is_next_label = self.random_sent(item)
 
+        """
         # tokenize
         tokens_a = self.tokenizer.tokenize(t1)
         tokens_b = self.tokenizer.tokenize(t2)
@@ -285,15 +285,25 @@ class LMDataset(Dataset):
         )
 
         # transform sample to features
-        cur_features = convert_example_to_features(cur_example, self.seq_len, self.tokenizer)
+        cur_features = convert_example_to_features(
+            example=cur_example,
+            max_seq_length=self.seq_len,
+            tokenizer=self.tokenizer,
+        )
 
         cur_tensors = (torch.tensor(cur_features.input_ids),
                        torch.tensor(cur_features.input_mask),
                        torch.tensor(cur_features.segment_ids),
                        torch.tensor(cur_features.lm_label_ids),
                        torch.tensor(cur_features.is_next))
-
         return cur_tensors
+        """
+        return InputExample(
+            guid=cur_id,
+            text_a=t1,
+            text_b=t2,
+            is_next=is_next_label,
+        )
 
     def random_sent(self, index):
         """
@@ -399,7 +409,7 @@ class TrainEpochState:
 class RunnerParameters:
     def __init__(self, select_prob, max_seq_length, local_rank, n_gpu, fp16,
                  learning_rate, gradient_accumulation_steps, t_total, warmup_proportion,
-                 num_train_epochs, train_batch_size, eval_batch_size):
+                 num_train_epochs, train_batch_size):
         self.select_prob = select_prob
         self.max_seq_length = max_seq_length
         self.local_rank = local_rank
@@ -411,7 +421,6 @@ class RunnerParameters:
         self.warmup_proportion = warmup_proportion
         self.num_train_epochs = num_train_epochs
         self.train_batch_size = train_batch_size
-        self.eval_batch_size = eval_batch_size
 
 
 class LMRunner:
@@ -427,7 +436,7 @@ class LMRunner:
             logger.info("***** Running training *****")
             logger.info("  Num examples = %d", len(train_examples))
             logger.info("  Batch size = %d", self.rparams.train_batch_size)
-            logger.info("  Num steps = %d", self.rparams.num_train_steps)
+            logger.info("  Num steps = %d", self.rparams.t_total)
         train_dataloader = self.get_train_dataloader(train_examples, verbose=verbose)
 
         for _ in trange(int(self.rparams.num_train_epochs), desc="Epoch"):

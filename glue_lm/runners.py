@@ -7,42 +7,34 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
-from .core import InputFeatures, Batch, InputExample, TokenizedExample
-from .evaluate import compute_metrics
-from pytorch_pretrained_bert.utils import truncate_seq_pair
-from shared.runners import warmup_linear
+from glue.core import InputExample
+from glue.runners import (
+    LabelModes, is_null_label_map,
+    tokenize_example, truncate_seq_pair,
+    warmup_linear, compute_task_metrics,
+    get_label_mode,
+)
+from language_modeling.runners import (
+    random_word,
+)
+from glue_lm.core import Batch, InputFeatures
+
 
 logger = logging.getLogger(__name__)
-
-
-class LabelModes:
-    CLASSIFICATION = "CLASSIFICATION"
-    REGRESSION = "REGRESSION"
 
 
 class TrainEpochState:
     def __init__(self):
         self.tr_loss = 0
+        self.tr_glue_loss = 0
+        self.tr_lm_loss = 0
         self.global_step = 0
         self.nb_tr_examples = 0
         self.nb_tr_steps = 0
 
 
-def tokenize_example(example, tokenizer):
-    tokens_a = tokenizer.tokenize(example.text_a)
-    if example.text_b:
-        tokens_b = tokenizer.tokenize(example.text_b)
-    else:
-        tokens_b = example.text_b
-    return TokenizedExample(
-        guid=example.guid,
-        tokens_a=tokens_a,
-        tokens_b=tokens_b,
-        label=example.label,
-    )
-
-
-def convert_example_to_feature(example, tokenizer, max_seq_length, label_map):
+def convert_example_to_features(example, tokenizer, max_seq_length, label_map,
+                                select_prob=0.15):
     if isinstance(example, InputExample):
         example = tokenize_example(example, tokenizer)
 
@@ -57,30 +49,31 @@ def convert_example_to_feature(example, tokenizer, max_seq_length, label_map):
         if len(tokens_a) > max_seq_length - 2:
             tokens_a = tokens_a[:(max_seq_length - 2)]
 
-    # The convention in BERT is:
-    # (a) For sequence pairs:
-    #  tokens:   [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]
-    #  type_ids: 0   0  0    0    0     0       0 0    1  1  1  1   1 1
-    # (b) For single sequences:
-    #  tokens:   [CLS] the dog is hairy . [SEP]
-    #  type_ids: 0   0   0   0  0     0 0
-    #
-    # Where "type_ids" are used to indicate whether this is the first
-    # sequence or the second sequence. The embedding vectors for `type=0` and
-    # `type=1` were learned during pre-training and are added to the wordpiece
-    # embedding vector (and position vector). This is not *strictly* necessary
-    # since the [SEP] token unambigiously separates the sequences, but it makes
-    # it easier for the model to learn the concept of sequences.
-    #
-    # For classification tasks, the first vector (corresponding to [CLS]) is
-    # used as as the "sentence vector". Note that this only makes sense because
-    # the entire model is fine-tuned.
-    tokens = ["[CLS]"] + tokens_a + ["[SEP]"]
-    segment_ids = [0] * len(tokens)
+    tokens_a, t1_label = random_word(tokens_a, tokenizer, select_prob=select_prob)
+    if tokens_b:
+        tokens_b, t2_label = random_word(tokens_b, tokenizer, select_prob=select_prob)
+        lm_label_ids = ([-1] + t1_label + [-1] + t2_label + [-1])
+    else:
+        lm_label_ids = ([-1] + t1_label + [-1])
+
+
+    tokens = []
+    segment_ids = []
+    tokens.append("[CLS]")
+    segment_ids.append(0)
+    for token in tokens_a:
+        tokens.append(token)
+        segment_ids.append(0)
+    tokens.append("[SEP]")
+    segment_ids.append(0)
 
     if tokens_b:
-        tokens += tokens_b + ["[SEP]"]
-        segment_ids += [1] * (len(tokens_b) + 1)
+        assert len(tokens_b) > 0
+        for token in tokens_b:
+            tokens.append(token)
+            segment_ids.append(1)
+        tokens.append("[SEP]")
+        segment_ids.append(1)
 
     input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
@@ -89,34 +82,39 @@ def convert_example_to_feature(example, tokenizer, max_seq_length, label_map):
     input_mask = [1] * len(input_ids)
 
     # Zero-pad up to the sequence length.
-    padding = [0] * (max_seq_length - len(input_ids))
-    input_ids += padding
-    input_mask += padding
-    segment_ids += padding
+    while len(input_ids) < max_seq_length:
+        input_ids.append(0)
+        input_mask.append(0)
+        segment_ids.append(0)
+        lm_label_ids.append(-1)
 
     assert len(input_ids) == max_seq_length
     assert len(input_mask) == max_seq_length
     assert len(segment_ids) == max_seq_length
+    assert len(lm_label_ids) == max_seq_length
 
     if is_null_label_map(label_map):
-        label_id = example.label
+        glue_label_id = example.label
     else:
-        label_id = label_map[example.label]
-    return InputFeatures(
+        glue_label_id = label_map[example.label]
+
+    features = InputFeatures(
         guid=example.guid,
         input_ids=input_ids,
         input_mask=input_mask,
         segment_ids=segment_ids,
-        label_id=label_id,
+        glue_label_id=glue_label_id,
+        lm_label_ids=lm_label_ids,
         tokens=tokens,
     )
+    return features
 
 
 def convert_examples_to_features(examples, label_map, max_seq_length, tokenizer, verbose=True):
     """Loads a data file into a list of `InputBatch`s."""
     features = []
     for (ex_index, example) in enumerate(examples):
-        feature_instance = convert_example_to_feature(
+        feature_instance = convert_example_to_features(
             example=example,
             tokenizer=tokenizer,
             max_seq_length=max_seq_length,
@@ -130,7 +128,7 @@ def convert_examples_to_features(examples, label_map, max_seq_length, tokenizer,
             logger.info("input_mask: %s" % " ".join([str(x) for x in feature_instance.input_mask]))
             logger.info(
                     "segment_ids: %s" % " ".join([str(x) for x in feature_instance.segment_ids]))
-            logger.info("label: %s (id = %d)" % (example.label, feature_instance.label_id))
+            logger.info("label: %s (id = %d)" % (example.label, feature_instance.glue_label_id))
 
         features.append(feature_instance)
     return features
@@ -138,12 +136,13 @@ def convert_examples_to_features(examples, label_map, max_seq_length, tokenizer,
 
 def convert_to_dataset(features, label_mode):
     full_batch = features_to_data(features, label_mode=label_mode)
-    if full_batch.label_ids is None:
+    if full_batch.glue_label_ids is None:
         dataset = TensorDataset(full_batch.input_ids, full_batch.input_mask,
                                 full_batch.segment_ids)
     else:
         dataset = TensorDataset(full_batch.input_ids, full_batch.input_mask,
-                                full_batch.segment_ids, full_batch.label_ids)
+                                full_batch.segment_ids,
+                                full_batch.glue_label_ids, full_batch.lm_label_ids)
     return dataset, full_batch.tokens
 
 
@@ -158,7 +157,8 @@ def features_to_data(features, label_mode):
         input_ids=torch.tensor([f.input_ids for f in features], dtype=torch.long),
         input_mask=torch.tensor([f.input_mask for f in features], dtype=torch.long),
         segment_ids=torch.tensor([f.segment_ids for f in features], dtype=torch.long),
-        label_ids=torch.tensor([f.label_id for f in features], dtype=label_type),
+        glue_label_ids=torch.tensor([f.glue_label_id for f in features], dtype=label_type),
+        lm_label_ids=torch.tensor([f.lm_label_ids for f in features], dtype=torch.long),
         tokens=[f.tokens for f in features],
     )
 
@@ -171,11 +171,11 @@ class HybridLoader:
     def __iter__(self):
         batch_size = self.dataloader.batch_size
         for i, batch in enumerate(self.dataloader):
-            if len(batch) == 4:
-                input_ids, input_mask, segment_ids, label_ids = batch
+            if len(batch) == 5:
+                input_ids, input_mask, segment_ids, glue_label_ids, lm_label_ids = batch
             elif len(batch) == 3:
                 input_ids, input_mask, segment_ids = batch
-                label_ids = None
+                glue_label_ids, lm_label_ids = None, None
             else:
                 raise RuntimeError()
             batch_tokens = self.tokens[i * batch_size: (i+1) * batch_size]
@@ -183,7 +183,8 @@ class HybridLoader:
                 input_ids=input_ids,
                 input_mask=input_mask,
                 segment_ids=segment_ids,
-                label_ids=label_ids,
+                glue_label_ids=glue_label_ids,
+                lm_label_ids=lm_label_ids,
                 tokens=batch_tokens,
             )
 
@@ -193,12 +194,15 @@ class HybridLoader:
 
 class RunnerParameters:
     def __init__(self, max_seq_length, local_rank, n_gpu, fp16,
+                 glue_loss_weight, lm_loss_weight,
                  learning_rate, gradient_accumulation_steps, t_total, warmup_proportion,
                  num_train_epochs, train_batch_size, eval_batch_size):
         self.max_seq_length = max_seq_length
         self.local_rank = local_rank
         self.n_gpu = n_gpu
         self.fp16 = fp16
+        self.glue_loss_weight = glue_loss_weight
+        self.lm_loss_weight = lm_loss_weight
         self.learning_rate = learning_rate
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.t_total = t_total
@@ -208,9 +212,11 @@ class RunnerParameters:
         self.eval_batch_size = eval_batch_size
 
 
-class GlueTaskRunner:
-    def __init__(self, model, optimizer, tokenizer, label_list, device, rparams):
-        self.model = model
+class GlueLMTaskRunner:
+    def __init__(self, glue_lm_model, optimizer, tokenizer, label_list, device, rparams):
+        self.glue_lm_model = glue_lm_model
+        self.glue_model = glue_lm_model.glue_model
+        self.lm_model = glue_lm_model.lm_model
         self.optimizer = optimizer
         self.tokenizer = tokenizer
         self.label_list = label_list
@@ -218,7 +224,7 @@ class GlueTaskRunner:
         self.device = device
         self.rparams = rparams
 
-    def run_train(self, train_examples, verbose=True):
+    def run_train(self, train_examples, task_name, verbose=True):
         if verbose:
             logger.info("***** Running training *****")
             logger.info("  Num examples = %d", len(train_examples))
@@ -227,36 +233,49 @@ class GlueTaskRunner:
         train_dataloader = self.get_train_dataloader(train_examples, verbose=verbose)
 
         for _ in trange(int(self.rparams.num_train_epochs), desc="Epoch"):
-            self.run_train_epoch(train_dataloader)
+            self.run_train_epoch(train_dataloader, task_name)
 
     def run_train_val(self, train_examples, val_examples, task_name):
         epoch_result_dict = col.OrderedDict()
         for i in trange(int(self.rparams.num_train_epochs), desc="Epoch"):
             train_dataloader = self.get_train_dataloader(train_examples, verbose=False)
-            self.run_train_epoch(train_dataloader)
+            self.run_train_epoch(train_dataloader, task_name)
             epoch_result = self.run_val(val_examples, task_name, verbose=False)
             del epoch_result["logits"]
             epoch_result_dict[i] = epoch_result
         return epoch_result_dict
 
-    def run_train_epoch(self, train_dataloader):
-        for _ in self.run_train_epoch_context(train_dataloader):
+    def run_train_epoch(self, train_dataloader, task_name):
+        for _ in self.run_train_epoch_context(train_dataloader, task_name):
             pass
 
-    def run_train_epoch_context(self, train_dataloader):
-        self.model.train()
+    def run_train_epoch_context(self, train_dataloader, task_name):
+        self.glue_lm_model.train()
         train_epoch_state = TrainEpochState()
         for step, batch in enumerate(tqdm(train_dataloader, desc="Training")):
             self.run_train_step(
                 step=step,
                 batch=batch,
                 train_epoch_state=train_epoch_state,
+                task_name=task_name,
             )
             yield step, batch, train_epoch_state
 
-    def run_train_step(self, step, batch, train_epoch_state):
+    def run_train_step(self, step, batch, train_epoch_state, task_name):
         batch = batch.to(self.device)
-        loss = self.model(batch.input_ids, batch.segment_ids, batch.input_mask, batch.label_ids)
+        use_lm = task_name == "cola"
+        glue_loss, lm_loss = self.glue_lm_model(
+            input_ids=batch.input_ids,
+            token_type_ids=batch.segment_ids,
+            attention_mask=batch.input_mask,
+            glue_labels=batch.glue_label_ids,
+            masked_lm_labels=batch.lm_label_ids,
+            use_lm=use_lm,
+        )
+        glue_loss = self.rparams.glue_loss_weight * glue_loss
+        lm_loss = self.rparams.lm_loss_weight * lm_loss
+        loss = glue_loss + lm_loss
+
         if self.rparams.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu.
         if self.rparams.gradient_accumulation_steps > 1:
@@ -267,6 +286,13 @@ class GlueTaskRunner:
             loss.backward()
 
         train_epoch_state.tr_loss += loss.item()
+        train_epoch_state.tr_glue_loss += glue_loss.item()
+        train_epoch_state.tr_lm_loss += lm_loss.item()
+        print("[TRAIN] ")
+        print("   GLUE: ", train_epoch_state.tr_glue_loss)
+        print("     LM: ", train_epoch_state.tr_lm_loss)
+        print("  TOTAL: ", train_epoch_state.tr_loss)
+
         train_epoch_state.nb_tr_examples += batch.input_ids.size(0)
         train_epoch_state.nb_tr_steps += 1
         if (step + 1) % self.rparams.gradient_accumulation_steps == 0:
@@ -280,8 +306,8 @@ class GlueTaskRunner:
             train_epoch_state.global_step += 1
 
     def run_val(self, val_examples, task_name, verbose=True):
+        self.glue_lm_model.eval()
         val_dataloader = self.get_eval_dataloader(val_examples, verbose=verbose)
-        self.model.eval()
         total_eval_loss = 0
         nb_eval_steps, nb_eval_examples = 0, 0
         all_logits = []
@@ -290,17 +316,25 @@ class GlueTaskRunner:
             batch = batch.to(self.device)
 
             with torch.no_grad():
-                tmp_eval_loss = self.model(batch.input_ids, batch.segment_ids,
-                                           batch.input_mask, batch.label_ids)
-                logits = self.model(batch.input_ids, batch.segment_ids, batch.input_mask)
-                label_ids = batch.label_ids.cpu().numpy()
+                glue_loss = self.glue_model(
+                    input_ids=batch.input_ids,
+                    token_type_ids=batch.segment_ids,
+                    attention_mask=batch.input_mask,
+                    labels=batch.glue_label_ids,
+                )
+                glue_logits = self.glue_model(
+                    input_ids=batch.input_ids,
+                    token_type_ids=batch.segment_ids,
+                    attention_mask=batch.input_mask,
+                )
+                label_ids = batch.glue_label_ids.cpu().numpy()
 
-            logits = logits.detach().cpu().numpy()
-            total_eval_loss += tmp_eval_loss.mean().item()
+            glue_logits = glue_logits.detach().cpu().numpy()
+            total_eval_loss += glue_loss.mean().item()
 
             nb_eval_examples += batch.input_ids.size(0)
             nb_eval_steps += 1
-            all_logits.append(logits)
+            all_logits.append(glue_logits)
             all_labels.append(label_ids)
         eval_loss = total_eval_loss / nb_eval_steps
         all_logits = np.concatenate(all_logits, axis=0)
@@ -314,12 +348,16 @@ class GlueTaskRunner:
 
     def run_test(self, test_examples, verbose=True):
         test_dataloader = self.get_eval_dataloader(test_examples, verbose=verbose)
-        self.model.eval()
+        self.glue_lm_model.eval()
         all_logits = []
         for step, batch in enumerate(tqdm(test_dataloader, desc="Predictions (Test)")):
             batch = batch.to(self.device)
             with torch.no_grad():
-                logits = self.model(batch.input_ids, batch.segment_ids, batch.input_mask)
+                logits = self.glue_model(
+                    input_ids=batch.input_ids,
+                    token_type_ids=batch.segment_ids,
+                    attention_mask=batch.input_mask,
+                )
             logits = logits.detach().cpu().numpy()
             all_logits.append(logits)
         all_logits = np.concatenate(all_logits, axis=0)
@@ -355,26 +393,3 @@ class GlueTaskRunner:
             eval_data, sampler=eval_sampler, batch_size=self.rparams.eval_batch_size,
         )
         return HybridLoader(eval_dataloader, eval_tokens)
-
-
-def compute_task_metrics(task_name, logits, labels):
-    if logits.shape[1] == 1:
-        pred_arr = logits.reshape(-1)
-    else:
-        pred_arr = np.argmax(logits, axis=1)
-    return compute_metrics(
-        task_name=task_name,
-        pred_srs=pred_arr,
-        label_srs=labels,
-    )
-
-
-def is_null_label_map(label_map):
-    return len(label_map) == 1 and label_map[None] == 0
-
-
-def get_label_mode(label_map):
-    if is_null_label_map(label_map):
-        return LabelModes.REGRESSION
-    else:
-        return LabelModes.CLASSIFICATION

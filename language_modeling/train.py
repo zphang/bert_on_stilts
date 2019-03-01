@@ -31,6 +31,15 @@ def get_args(*in_args):
                         required=True,
                         help="The output directory where the model checkpoints will be written.")
 
+    # === Model parameters === #
+    parser.add_argument("--bert_load_path", default=None, type=str)
+    parser.add_argument("--bert_load_mode", default="from_pretrained", type=str,
+                        help="from_pretrained, model_only, state_model_only, state_all")
+    parser.add_argument("--bert_load_args", default=None, type=str)
+    parser.add_argument("--bert_config_json_path", default=None, type=str)
+    parser.add_argument("--bert_vocab_path", default=None, type=str)
+    parser.add_argument("--bert_save_mode", default="all", type=str)
+
     # === Other parameters === #
     parser.add_argument("--select_prob", default=0.15, type=float)
     parser.add_argument("--max_seq_length",
@@ -86,6 +95,9 @@ def get_args(*in_args):
                              "Only used when fp16 set to True.\n"
                              "0 (default value): dynamic loss scaling.\n"
                              "Positive power of 2: static loss scaling value.\n")
+    parser.add_argument('--print-trainable-params', action="store_true")
+    parser.add_argument('--not-verbose', action="store_true")
+    parser.add_argument('--force-overwrite', action="store_true")
     args = parser.parse_args(*in_args)
     return args
 
@@ -129,9 +141,8 @@ def main():
         args.train_file, tokenizer, seq_len=args.max_seq_length,
         corpus_lines=None, on_memory=args.on_memory,
     )
-    num_train_examples = len(train_dataset)
     t_total = shared_model_setup.get_opt_train_steps(
-        num_train_examples=num_train_examples,
+        num_train_examples=len(train_dataset),
         args=args,
     )
     optimizer = shared_model_setup.create_optimizer(
@@ -154,14 +165,17 @@ def main():
             learning_rate=args.learning_rate, gradient_accumulation_steps=args.gradient_accumulation_steps,
             t_total=t_total, warmup_proportion=args.warmup_proportion,
             num_train_epochs=args.num_train_epochs,
-            train_batch_size=args.train_batch_size, eval_batch_size=args.eval_batch_size,
+            train_batch_size=args.train_batch_size,
         )
     )
 
-    assert at_most_one_of([args.do_val_history, args.train_save_every])
     runner.run_train(train_dataset)
     lm_model_setup.save_bert(
         model=model, optimizer=optimizer, args=args,
         save_path=os.path.join(args.output_dir, "all_state.p"),
         save_mode=args.bert_save_mode,
     )
+
+
+if __name__ == "__main__":
+    main()

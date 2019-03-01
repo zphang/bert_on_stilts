@@ -25,7 +25,6 @@ class InputExample(object):
         self.text_a = text_a
         self.text_b = text_b
         self.is_next = is_next  # nextSentence
-        self.lm_labels = lm_labels  # masked words for language model
 
     def new(self, **new_kwargs):
         kwargs = {
@@ -33,7 +32,6 @@ class InputExample(object):
             "text_a": self.text_a,
             "text_b": self.text_b,
             "is_next": self.is_next,
-            "lm_labels": self.lm_labels,
         }
         for k, v in new_kwargs.items():
             kwargs[k] = v
@@ -46,7 +44,6 @@ class TokenizedExample(object):
         self.tokens_a = tokens_a
         self.tokens_b = tokens_b
         self.is_next = is_next  # nextSentence
-        self.lm_labels = lm_labels  # masked words for language model
 
     def new(self, **new_kwargs):
         kwargs = {
@@ -54,7 +51,6 @@ class TokenizedExample(object):
             "tokens_a": self.tokens_a,
             "tokens_b": self.tokens_b,
             "is_next": self.is_next,
-            "lm_labels": self.lm_labels,
         }
         for k, v in new_kwargs.items():
             kwargs[k] = v
