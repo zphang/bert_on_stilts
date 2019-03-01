@@ -8,28 +8,115 @@ STILTs is a method for supplementary training on an intermediate task before fin
 
 **BERT on STILTs** achieves a [GLUE score](https://gluebenchmark.com/leaderboard) of 82.0, compared to 80.5 of BERT without STILTs.
 
-### Trained Models
+## Trained Models
 
 *Coming: 03/01/2019*
 
 | Base Model | Intermediate Task | Target Task | Download | Val Score |
 | :---: | :---: | :---: | :---: | :---: |
-| BERT   | N/A      | **CoLA**   | Link | - |
-| BERT   | **MNLI** | **SST**    | Link | - |
-| BERT   | **MNLI** | **MRPC**   | Link | - |
-| BERT   | N/A      | **QQP**    | Link | - |
-| BERT   | **MNLI** | **STS-B**  | Link | - |
-| BERT   | N/A      | **MNLI**   | Link | - |
-| BERT   | **MNLI** | **QNLI**   | Link | - |
-| BERT   | **MNLI** | **RTE**    | Link | - |
+| BERT-Large   | N/A      | **CoLA**   | Link | - |
+| BERT-Large   | **MNLI** | **SST**    | Link | - |
+| BERT-Large   | **MNLI** | **MRPC**   | Link | - |
+| BERT-Large   | N/A      | **QQP**    | Link | - |
+| BERT-Large   | **MNLI** | **STS-B**  | Link | - |
+| BERT-Large   | N/A      | **MNLI**   | Link | - |
+| BERT-Large   | **MNLI** | **QNLI**   | Link | - |
+| BERT-Large   | **MNLI** | **RTE**    | Link | - |
  
 *Models differ slightly from published results because they were retrained.*
 
-### Example usage
+## Example usage
 
-*Coming: 03/01/2019*
+#### Preparation
 
-### FAQ
+You will need to download the GLUE data to run our tasks. See [here](https://github.com/jsalt18-sentence-repl/jiant#downloading-data).
+
+You will also need to set the two following environment variables:
+
+* `GLUE_DIR`: This should point to the location of the GLUE data downloaded from `jiant`.
+* `BERT_ALL_DIR`: This should point to the location of BERT downloaded from [here](https://storage.googleapis.com/bert_models/2018_10_18/uncased_L-24_H-1024_A-16.zip). Importantly, the `BERT_ALL_DIR` needs to contain the files `uncased_L-24_H-1024_A-16/bert_config.json` and `uncased_L-24_H-1024_A-16/vocab.txt`.
+
+##### Example 1: Generating Predictions
+
+To generate validation/test predictions, as well as validation metrics, run something like the following:
+
+```bash
+export TASK=rte
+export BERT_LOAD_PATH=path/to/mnli__rte.p
+export OUTPUT_PATH=rte_output
+
+python glue/train.py \
+    --task_name $TASK \
+    --do_val --do_test \
+    --do_lower_case \
+    --bert_model bert-large-uncased \
+    --bert_load_mode model_only \
+    --bert_load_path $BERT_LOAD_PATH \
+    --train_batch_size 8 \
+    --learning_rate 2e-5 \
+    --output_dir $OUTPUT_PATH
+``` 
+
+##### Example 2: Fine-tuning from vanilla BERT
+
+We recommend training with a batch size of 16/24/32.
+
+```bash
+export TASK=mnli
+export OUTPUT_PATH=mnli
+
+python glue/train.py \
+    --task_name $TASK \
+    --do_train --do_val --do_test --do_val_history \
+    --do_save \
+    --do_lower_case \
+    --bert_model bert-large-uncased \
+    --bert_load_mode from_pretrained \
+    --bert_save_mode model_all \
+    --train_batch_size 24 \
+    --learning_rate 2e-5 \
+    --output_dir $OUTPUT_PATH
+``` 
+
+
+##### Example 3: STILTs MNLI &rarr; RTE 
+
+```bash
+export TASK_A=mnli
+export TASK_B=rte
+export OUTPUT_PATH_A=mnli
+export OUTPUT_PATH_B=mnli__rte
+
+# MNLI
+python glue/train.py \
+    --task_name $TASK_A \
+    --do_train --do_val \
+    --do_save \
+    --do_lower_case \
+    --bert_model bert-large-uncased \
+    --bert_load_mode from_pretrained \
+    --bert_save_mode model_all \
+    --train_batch_size 24 \
+    --learning_rate 2e-5 \
+    --output_dir $OUTPUT_PATH_A
+    
+# MNLI -> RTE
+python glue/train.py \
+    --task_name $TASK_B \
+    --do_train --do_val --do_test --do_val_history \
+    --do_save \
+    --do_lower_case \
+    --bert_model bert-large-uncased \
+    --bert_load_path $OUTPUT_PATH_A/all_state.p
+    --bert_load_mode model_only \
+    --bert_save_mode model_all \
+    --train_batch_size 24 \
+    --learning_rate 2e-5 \
+    --output_dir $OUTPUT_PATH_B
+``` 
+
+
+## FAQ
 
 > What does STILTs stand for?
 
@@ -61,7 +148,7 @@ Finetuning BERT-Large on tasks with little training data (<10k) tends to be unst
 
 Those results were obtained using the [jiant](https://github.com/jsalt18-sentence-repl/jiant) framework. We currently have no plans to publish the trained models for those experiments.  
 
-### Citation
+## Citation
 
 ```
 @article{phang2018stilts,
