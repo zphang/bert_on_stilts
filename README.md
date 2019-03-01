@@ -4,9 +4,9 @@ This repository contains code for [BERT on STILTs](https://arxiv.org/abs/1811.01
 
 STILTs is a method for supplementary training on an intermediate task before fine-tuning for a downstream target task. We show in [our paper](https://arxiv.org/abs/1811.01088v2) that can improve the performance and stability of the final model.
 
-BERT on STILTs achieves a [GLUE score](https://gluebenchmark.com/leaderboard) of 82.0, compared to 80.5 of BERT without STILTs.
+**BERT on STILTs** achieves a [GLUE score](https://gluebenchmark.com/leaderboard) of 82.0, compared to 80.5 of BERT without STILTs.
 
-#### Trained Models
+### Trained Models
 
 *Coming: 03/01/2019*
 
@@ -19,11 +19,11 @@ BERT on STILTs achieves a [GLUE score](https://gluebenchmark.com/leaderboard) of
 * BERT &rarr; MNLI &rarr; **QNLI**: [Link]
 * BERT &rarr; MNLI &rarr; **RTE**: [Link]
 
-#### Example usage
+### Example usage
 
 *Coming: 03/01/2019*
 
-#### Citation
+### Citation
 
 ```
 @article{devlin2018bert,
