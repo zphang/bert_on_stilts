@@ -33,6 +33,7 @@ def create_tokenizer(bert_model_name, bert_load_mode, do_lower_case, bert_vocab_
         assert bert_vocab_path is None
         tokenizer = BertTokenizer.from_pretrained(bert_model_name, do_lower_case=do_lower_case)
     elif bert_load_mode in ["model_only", "state_model_only", "state_all", "state_full_model",
+                            "full_model_only",
                             "state_adapter"]:
         tokenizer = load_tokenizer(
             bert_model_name=bert_model_name,

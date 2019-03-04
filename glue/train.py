@@ -254,9 +254,9 @@ def main():
             df = pd.DataFrame(results["logits"])
             df.to_csv(os.path.join(args.output_dir, "mm_val_preds.csv"), header=False, index=False)
             combined_metrics = {}
-            for k, v in results["metrics"]:
+            for k, v in results["metrics"].items():
                 combined_metrics[k] = v
-            for k, v in mm_results["metrics"]:
+            for k, v in mm_results["metrics"].items():
                 combined_metrics["mm-"+k] = v
             combined_metrics_str = json.dumps({
                 "loss": results["loss"],

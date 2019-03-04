@@ -14,14 +14,14 @@ STILTs is a method for supplementary training on an intermediate task before fin
 
 | Base Model | Intermediate Task | Target Task | Download | Val Score |
 | :---: | :---: | :---: | :---: | :---: |
-| BERT-Large   | N/A      | **CoLA**   | Link | - |
-| BERT-Large   | **MNLI** | **SST**    | Link | - |
-| BERT-Large   | **MNLI** | **MRPC**   | Link | - |
+| BERT-Large   | N/A      | **CoLA**   | Link | 65.3 |
+| BERT-Large   | **MNLI** | **SST**    | Link | 93.9 |
+| BERT-Large   | **MNLI** | **MRPC**   | Link | 90.4 |
 | BERT-Large   | N/A      | **QQP**    | Link | - |
-| BERT-Large   | **MNLI** | **STS-B**  | Link | - |
-| BERT-Large   | N/A      | **MNLI**   | Link | - |
-| BERT-Large   | **MNLI** | **QNLI**   | Link | - |
-| BERT-Large   | **MNLI** | **RTE**    | Link | - |
+| BERT-Large   | **MNLI** | **STS-B**  | Link | 90.7 |
+| BERT-Large   | N/A      | **MNLI**   | Link | 86.7 |
+| BERT-Large   | **MNLI** | **QNLI**   | Link | 92.3 |
+| BERT-Large   | **MNLI** | **RTE**    | Link | 84.1 |
  
 *Models differ slightly from published results because they were retrained.*
 
@@ -52,8 +52,7 @@ python glue/train.py \
     --bert_model bert-large-uncased \
     --bert_load_mode model_only \
     --bert_load_path $BERT_LOAD_PATH \
-    --train_batch_size 8 \
-    --learning_rate 2e-5 \
+    --eval_batch_size 64 \
     --output_dir $OUTPUT_PATH
 ``` 
 
@@ -153,7 +152,7 @@ Those results were obtained using the [jiant](https://github.com/jsalt18-sentenc
 ```
 @article{phang2018stilts,
   title={Sentence Encoders on STILTs: Supplementary Training on Intermediate Labeled-data Tasks},
-  author={Phang, Jason and Févry,, Thibault and Bowman, Samuel R.},
+  author={Phang, Jason and F\'evry,, Thibault and Bowman, Samuel R.},
   journal={arXiv preprint arXiv:1811.01088v2},
   year={2018}
 }
