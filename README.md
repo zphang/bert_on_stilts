@@ -4,7 +4,7 @@
 
 This repository contains code for [BERT on STILTs](https://arxiv.org/abs/1811.01088v2). It is a fork of the [Hugging Face implementation of BERT](https://github.com/huggingface/pytorch-pretrained-BERT).
 
-STILTs is a method for supplementary training on an intermediate task before fine-tuning for a downstream target task. We show in [our paper](https://arxiv.org/abs/1811.01088v2) that can improve the performance and stability of the final model.
+STILTs is a method for supplementary training on an intermediate task before fine-tuning for a downstream target task. We show in [our paper](https://arxiv.org/abs/1811.01088v2) that STILTs can improve the performance and stability of the final model on the target task.
 
 **BERT on STILTs** achieves a [GLUE score](https://gluebenchmark.com/leaderboard) of 82.0, compared to 80.5 of BERT without STILTs.
 
@@ -35,7 +35,8 @@ You will need to download the GLUE data to run our tasks. See [here](https://git
 You will also need to set the two following environment variables:
 
 * `GLUE_DIR`: This should point to the location of the GLUE data downloaded from `jiant`.
-* `BERT_ALL_DIR`: This should point to the location of BERT downloaded from [here](https://storage.googleapis.com/bert_models/2018_10_18/uncased_L-24_H-1024_A-16.zip). Importantly, the `BERT_ALL_DIR` needs to contain the files `uncased_L-24_H-1024_A-16/bert_config.json` and `uncased_L-24_H-1024_A-16/vocab.txt`.
+* `BERT_ALL_DIR`: Set `BERT_ALL_DIR=/PATH_TO_THIS_REPO/cache/bert_metadata` 
+    * For mor general use: `BERT_ALL_DIR` should point to the location of BERT downloaded from [here](https://storage.googleapis.com/bert_models/2018_10_18/uncased_L-24_H-1024_A-16.zip). Importantly, the `BERT_ALL_DIR` needs to contain the files `uncased_L-24_H-1024_A-16/bert_config.json` and `uncased_L-24_H-1024_A-16/vocab.txt`.
 
 ##### Example 1: Generating Predictions
 
@@ -173,6 +174,10 @@ Once you have exported submission predictions for each task, you should have 11 
 ```
 
 Next run `zip -j -D submission.zip *.tsv` in the folder to generate the submission zip file. Upload the zip file to [https://gluebenchmark.com/submit](https://gluebenchmark.com/submit) to submit to the leaderboard.
+
+## Extras
+
+This repository also supports the use of [Adapter layers](https://arxiv.org/abs/1902.00751) for BERT.
 
 ## FAQ
 
