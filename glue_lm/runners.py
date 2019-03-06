@@ -263,14 +263,15 @@ class GlueLMTaskRunner:
 
     def run_train_step(self, step, batch, train_epoch_state, task_name):
         batch = batch.to(self.device)
-        use_lm = task_name == "cola"
+        use_cola = task_name == "cola"
         glue_loss, lm_loss = self.glue_lm_model(
             input_ids=batch.input_ids,
             token_type_ids=batch.segment_ids,
             attention_mask=batch.input_mask,
             glue_labels=batch.glue_label_ids,
             masked_lm_labels=batch.lm_label_ids,
-            use_lm=use_lm,
+            use_lm=True,
+            use_cola=use_cola,
         )
         glue_loss = self.rparams.glue_loss_weight * glue_loss
         lm_loss = self.rparams.lm_loss_weight * lm_loss
@@ -288,10 +289,10 @@ class GlueLMTaskRunner:
         train_epoch_state.tr_loss += loss.item()
         train_epoch_state.tr_glue_loss += glue_loss.item()
         train_epoch_state.tr_lm_loss += lm_loss.item()
-        print("[TRAIN] ")
-        print("   GLUE: ", train_epoch_state.tr_glue_loss)
-        print("     LM: ", train_epoch_state.tr_lm_loss)
-        print("  TOTAL: ", train_epoch_state.tr_loss)
+        # print("[TRAIN] ")
+        # print("   GLUE: ", train_epoch_state.tr_glue_loss)
+        # print("     LM: ", train_epoch_state.tr_lm_loss)
+        # print("  TOTAL: ", train_epoch_state.tr_loss)
 
         train_epoch_state.nb_tr_examples += batch.input_ids.size(0)
         train_epoch_state.nb_tr_steps += 1

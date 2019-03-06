@@ -73,6 +73,7 @@ def get_args(*in_args):
                         action='store_true',
                         help="")
     parser.add_argument("--train_save_every", type=int, default=None)
+    parser.add_argument("--train_save_every_epoch", action="store_true")
     parser.add_argument("--do_lower_case",
                         action='store_true',
                         help="Set this flag if you are using an uncased model.")
@@ -251,7 +252,7 @@ def main():
         elif args.train_save_every:
             train_dataloader = runner.get_train_dataloader(train_examples, verbose=not args.not_verbose)
             for epoch in range(int(args.num_train_epochs)):
-                for step, _, _ in runner.run_train_epoch_context(train_dataloader):
+                for step, _, _ in runner.run_train_epoch_context(train_dataloader, task_name=task.name):
                     if step % args.train_save_every == args.train_save_every - 1 \
                             or step == len(train_dataloader) - 1:
                         glue_lm_model_setup.save_bert(
@@ -263,6 +264,19 @@ def main():
                             save_mode=args.bert_save_mode,
                             verbose=not args.not_verbose,
                         )
+        elif args.train_save_every_epoch:
+            train_dataloader = runner.get_train_dataloader(train_examples, verbose=not args.not_verbose)
+            for epoch in range(int(args.num_train_epochs)):
+                runner.run_train_epoch(train_dataloader, task.name)
+                glue_lm_model_setup.save_bert(
+                    glue_lm_model=glue_lm_model,
+                    optimizer=optimizer, args=args,
+                    save_path=os.path.join(
+                        args.output_dir, f"all_state___epoch{epoch:04d}.p"
+                    ),
+                    save_mode=args.bert_save_mode,
+                    verbose=not args.not_verbose,
+                )
         else:
             runner.run_train(train_examples, task_name=task.name)
 

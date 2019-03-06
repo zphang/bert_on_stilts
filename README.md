@@ -14,14 +14,14 @@ STILTs is a method for supplementary training on an intermediate task before fin
 
 | Base Model | Intermediate Task | Target Task | Download | Val Score |
 | :---: | :---: | :---: | :---: | :---: |
-| BERT-Large   | N/A      | **CoLA**   | Link | 65.3 |
-| BERT-Large   | **MNLI** | **SST**    | Link | 93.9 |
-| BERT-Large   | **MNLI** | **MRPC**   | Link | 90.4 |
-| BERT-Large   | N/A      | **QQP**    | Link | - |
-| BERT-Large   | **MNLI** | **STS-B**  | Link | 90.7 |
-| BERT-Large   | N/A      | **MNLI**   | Link | 86.7 |
-| BERT-Large   | **MNLI** | **QNLI**   | Link | 92.3 |
-| BERT-Large   | **MNLI** | **RTE**    | Link | 84.1 |
+| BERT-Large   | -        | **CoLA**   | [Link](https://drive.google.com/file/d/1bYuvIrnYjI-22xd6koYdDlkgLMtN6Uey/view?usp=sharing) | 65.3 |
+| BERT-Large   | **MNLI** | **SST**    | [Link](https://drive.google.com/file/d/1M0ubTzGO4oNC7szc6bRxMIf81iTWgAPL/view?usp=sharing) | 93.9 |
+| BERT-Large   | **MNLI** | **MRPC**   | [Link](https://drive.google.com/file/d/1b0FdK-95yLk_P2ro009opSRX6GgwegGB/view?usp=sharing) | 90.4 |
+| BERT-Large   | -        | **QQP**    | [Link](https://drive.google.com/file/d/1d5KMckz2txwYtE_wGL6g8591nGFw9Vid/view?usp=sharing) | 90.0 |
+| BERT-Large   | **MNLI** | **STS-B**  | [Link](https://drive.google.com/file/d/1VWZbqFvM2myLoE2-uVh-KtAUmhgS9anb/view?usp=sharing) | 90.7 |
+| BERT-Large   | -        | **MNLI**   | [Link](https://drive.google.com/file/d/1na4cULKs5qe9odhF0qA-x4H2ZZKXNl7N/view?usp=sharing) | 86.7 |
+| BERT-Large   | **MNLI** | **QNLI**   | [Link](https://drive.google.com/file/d/1cHehR1PXxQ38UrKBdzwUCykZcKoIUeCv/view?usp=sharing) | 92.3 |
+| BERT-Large   | **MNLI** | **RTE**    | [Link](https://drive.google.com/file/d/1YIYiqcBTXRCMh8gvKnGCO0mXuhR6PnKF/view?usp=sharing) | 84.1 |
  
 *Models differ slightly from published results because they were retrained.*
 
@@ -78,6 +78,28 @@ python glue/train.py \
 ``` 
 
 
+##### Example 3: Fine-tuning from MNLI model
+
+```bash
+export PRETRAINED_MODEL_PATH=/path/to/mnli.p
+export TASK=rte
+export OUTPUT_PATH=mnli
+
+python glue/train.py \
+    --task_name $TASK \
+    --do_train --do_val --do_test --do_val_history \
+    --do_save \
+    --do_lower_case \
+    --bert_model bert-large-uncased \
+    --bert_load_path $PRETRAINED_MODEL_PATH \
+    --bert_load_mode model_only \
+    --bert_save_mode model_all \
+    --train_batch_size 24 \
+    --learning_rate 2e-5 \
+    --output_dir $OUTPUT_PATH
+``` 
+
+
 ##### Example 3: STILTs MNLI &rarr; RTE 
 
 ```bash
@@ -106,8 +128,8 @@ python glue/train.py \
     --do_save \
     --do_lower_case \
     --bert_model bert-large-uncased \
-    --bert_load_path $OUTPUT_PATH_A/all_state.p
-    --bert_load_mode model_only \
+    --bert_load_path $OUTPUT_PATH_A/all_state.p \
+    --bert_load_mode state_model_only \
     --bert_save_mode model_all \
     --train_batch_size 24 \
     --learning_rate 2e-5 \
