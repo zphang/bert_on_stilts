@@ -10,8 +10,6 @@ STILTs is a method for supplementary training on an intermediate task before fin
 
 ## Trained Models
 
-*Coming: 03/01/2019*
-
 | Base Model | Intermediate Task | Target Task | Download | Val Score | Test Score |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 | BERT-Large   | -        | **CoLA**   | [Link](https://drive.google.com/file/d/1bYuvIrnYjI-22xd6koYdDlkgLMtN6Uey/view?usp=sharing) | 65.3 | 61.2 |
@@ -65,7 +63,7 @@ We recommend training with a batch size of 16/24/32.
 
 ```bash
 export TASK=mnli
-export OUTPUT_PATH=mnli
+export OUTPUT_PATH=mnli_output
 
 python glue/train.py \
     --task_name $TASK \
@@ -86,7 +84,7 @@ python glue/train.py \
 ```bash
 export PRETRAINED_MODEL_PATH=/path/to/mnli.p
 export TASK=rte
-export OUTPUT_PATH=mnli
+export OUTPUT_PATH=rte_output
 
 python glue/train.py \
     --task_name $TASK \
@@ -103,7 +101,7 @@ python glue/train.py \
 ``` 
 
 
-##### Example 3: STILTs MNLI &rarr; RTE 
+##### Example 4: STILTs MNLI &rarr; RTE 
 
 ```bash
 export TASK_A=mnli
@@ -139,6 +137,42 @@ python glue/train.py \
     --output_dir $OUTPUT_PATH_B
 ``` 
 
+
+## Submission to GLUE leaderboard
+
+We have included helper scripts for exporting submissions to the GLUE leaderboard. To prepare for submission, copy the template from `cache/submission_template` to a given new output folder:
+
+```bash
+cp -R cache/submission_template /path/to/new_submission
+```
+
+After running a fine-tuned/pretrained model on a task with the `--do_test` argument, a folder (e.g. `rte_output`) will be created containing `test_preds.csv` among other files. Run the following command to convert `test_preds.csv` to the submission format in the output folder.
+
+```bash
+python glue/format_for_glue.py 
+    --task-name rte \
+    --input-base-path /path/to/rte_output \
+    --output-base-path /path/to/new_submission
+```
+
+Once you have exported submission predictions for each task, you should have 11 `.tsv` files in total. If you run `wc -l *.tsv`, you should see something like the following:
+
+```
+   1105 AX.tsv
+   1064 CoLA.tsv
+   9848 MNLI-mm.tsv
+   9797 MNLI-m.tsv
+   1726 MRPC.tsv
+   5464 QNLI.tsv
+ 390966 QQP.tsv
+   3001 RTE.tsv
+   1822 SST-2.tsv
+   1380 STS-B.tsv
+    147 WNLI.tsv
+ 426597 total 
+```
+
+Next run `zip -j -D submission.zip *.tsv` in the folder to generate the submission zip file. Upload the zip file to [https://gluebenchmark.com/submit](https://gluebenchmark.com/submit) to submit to the leaderboard.
 
 ## FAQ
 

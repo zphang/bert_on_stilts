@@ -99,7 +99,7 @@ def main(task_name, input_base_path, output_base_path, file_format):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='glue')
-    parser.add_argument('-t', '--task_name', type=str, default=None)
+    parser.add_argument('-t', '--task-name', type=str, default=None)
     parser.add_argument('-i', '--input-base-path', required=True)
     parser.add_argument('-o', '--output-base-path', required=True)
     parser.add_argument('-f', '--file-format', type=str, default="csv")
